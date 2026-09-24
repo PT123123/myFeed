@@ -111,10 +111,11 @@ class FeedRepository(
         private val ENCODING = Regex("""encoding\s*=\s*["']([\w.:-]+)["']""", RegexOption.IGNORE_CASE)
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .callTimeout(25, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(14, TimeUnit.SECONDS)
+            .writeTimeout(8, TimeUnit.SECONDS)
+            // 十几个源并发拉，整体等待时间取决于最慢的那个；给个比 read 稍宽的上限兜住重定向链
+            .callTimeout(18, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
     }

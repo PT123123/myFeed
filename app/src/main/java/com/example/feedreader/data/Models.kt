@@ -37,14 +37,52 @@ data class FetchOutcome(
 
 object FeedSources {
 
-    /** 内置订阅源。挑的是体积可控、结构规范的几个。 */
+    /**
+     * 内置订阅源。
+     *
+     * 前 14 个是各站官方 RSS，直连即可。
+     *
+     * 「热点」那 3 个没有官方 RSS，走 RSSHub 公共镜像。镜像可用性实测（2026-09-24）：
+     *   rsshub.liumingye.cn   通
+     *   rsshub.woodland.cafe  通
+     *   rsshub.rssforever.com 通
+     *   官方 rsshub.app       本网络下 DNS 被污染（解析到 31.13.106.4），不可用
+     * 镜像会挂，如果哪个源开始报错，换成其它镜像即可；实在不行在设置里关掉。
+     *
+     * 没内置的：小红书、Twitter/X —— 它们的 RSSHub 路由需要实例侧配置
+     * 登录凭证（小红书 cookie / TWITTER_AUTH_TOKEN），公共镜像实测全部 503。
+     * 想要的话得自己部署一个 RSSHub 实例并配上 cookie。
+     */
     val DEFAULT: List<FeedSource> = listOf(
+        // —— 科技 ——
         FeedSource("hn", "Hacker News", "https://hnrss.org/frontpage", "科技"),
         FeedSource("techcrunch", "TechCrunch", "https://techcrunch.com/feed/", "科技"),
         FeedSource("solidot", "Solidot 奇客", "https://www.solidot.org/index.rss", "科技"),
+        FeedSource("ithome", "IT之家", "https://www.ithome.com/rss/", "科技"),
+        FeedSource("ifanr", "爱范儿", "https://www.ifanr.com/feed", "科技"),
+        FeedSource("qbitai", "量子位", "https://www.qbitai.com/feed", "科技"),
+
+        // —— 开发 ——
         FeedSource("infoq", "InfoQ 中文", "https://www.infoq.cn/feed", "开发"),
         FeedSource("oschina", "OSCHINA", "https://www.oschina.net/news/rss", "开发"),
+        FeedSource("juejin", "掘金", "https://juejin.cn/rss", "开发"),
+        FeedSource("ruanyf", "阮一峰的网络日志", "https://www.ruanyifeng.com/blog/atom.xml", "开发"),
+        FeedSource(
+            "ghtrending",
+            "GitHub Trending",
+            "https://rsshub.rssforever.com/github/trending/daily/any",
+            "开发",
+        ),
+
+        // —— 综合 ——
         FeedSource("sspai", "少数派", "https://sspai.com/feed", "综合"),
+        FeedSource("appinn", "小众软件", "https://www.appinn.com/feed/", "综合"),
+        FeedSource("gcores", "机核", "https://www.gcores.com/rss", "综合"),
+
+        // —— 热点（RSSHub 镜像）——
+        FeedSource("zhihuhot", "知乎热榜", "https://rsshub.liumingye.cn/zhihu/hot", "热点"),
+        FeedSource("zhihudaily", "知乎日报", "https://rsshub.woodland.cafe/zhihu/daily", "热点"),
+        FeedSource("bilihot", "B站热搜", "https://rsshub.liumingye.cn/bilibili/hot-search", "热点"),
     )
 
     const val ALL = "全部"

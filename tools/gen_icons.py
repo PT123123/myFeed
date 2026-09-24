@@ -7,7 +7,7 @@
   res/mipmap-anydpi-v26/ic_launcher_round.xml
   res/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher(_round).png   API 21-25 兜底
 
-图形：橙色渐变底 + 白色 RSS 弧线。
+图形：绿色渐变底 + 白色 RSS 弧线。
 """
 
 import math
@@ -19,8 +19,8 @@ RES = os.path.join(
     "app", "src", "main", "res",
 )
 
-C0 = (255, 138, 61)   # 橙
-C1 = (226, 69, 31)    # 深橙红
+C0 = (76, 175, 80)    # 绿 (#4CAF50)
+C1 = (27, 94, 32)     # 深绿 (#1B5E20)
 SS = 8                # 超采样倍数
 
 # 108 空间下的 RSS 图形参数
@@ -213,7 +213,7 @@ def adaptive_preview():
         guide = ImageDraw.Draw(layer)
         c = side / 2.0
         r = SAFE_RADIUS_DP * k
-        guide.ellipse([c - r, c - r, c + r, c + r], outline=(0, 200, 120, 255), width=2)
+        guide.ellipse([c - r, c - r, c + r, c + r], outline=(255, 87, 34, 255), width=2)
 
         out.paste(layer, (x, 25), layer)
         x += side + 30
