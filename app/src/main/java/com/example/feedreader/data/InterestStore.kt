@@ -15,6 +15,7 @@ class InterestStore(context: Context) {
 
     init {
         migrateChannelDefaults()
+        migrateInterestDefaults()
     }
 
     /**
@@ -38,6 +39,33 @@ class InterestStore(context: Context) {
             .putStringSet(KEY_DISABLED_CHANNELS, next)
             .putInt(KEY_CHANNEL_DEFAULTS_VERSION, CHANNEL_DEFAULTS_VERSION)
             .apply()
+    }
+
+    /**
+     * 出厂默认兴趣改版时的迁移：把新默认推给「还停留在旧默认」的用户。
+     *
+     * 和 [migrateChannelDefaults] 是同一类问题，但语义更克制：**只覆盖仍停在
+     * [Interests.OLD_DEFAULT] 的用户**，已经个性化（哪怕只是改过某个权重）的列表
+     * 一律不动——兴趣是高度个人化的东西，静默覆盖比「默认不生效」更糟。
+     *
+     * 从没写过兴趣的用户（`KEY_INTERESTS` 不存在）不用写盘，getter 会自动回退到新的
+     * [Interests.DEFAULT]；这里只负责把版本号涨上去，免得以后又跑一遍。
+     */
+    private fun migrateInterestDefaults() {
+        if (prefs.getInt(KEY_INTERESTS_DEFAULTS_VERSION, 0) >= INTERESTS_DEFAULTS_VERSION) return
+
+        val current = if (prefs.contains(KEY_INTERESTS)) {
+            InterestCodec.decode(prefs.getString(KEY_INTERESTS, "").orEmpty())
+        } else {
+            null
+        }
+
+        if (current != null && current == Interests.OLD_DEFAULT) {
+            prefs.edit()
+                .putString(KEY_INTERESTS, InterestCodec.encode(Interests.DEFAULT))
+                .apply()
+        }
+        prefs.edit().putInt(KEY_INTERESTS_DEFAULTS_VERSION, INTERESTS_DEFAULTS_VERSION).apply()
     }
 
     /**
@@ -113,8 +141,12 @@ class InterestStore(context: Context) {
          */
         private const val CHANNEL_DEFAULTS_VERSION = 1
 
+        /** 出厂默认兴趣的版本号。**改 [Interests.DEFAULT] 就要加一**，否则改动对停在旧默认的用户无效（见 [migrateInterestDefaults]）。 */
+        private const val INTERESTS_DEFAULTS_VERSION = 1
+
         private const val FILE = "myfeed_interests"
         private const val KEY_INTERESTS = "interest_list"
+        private const val KEY_INTERESTS_DEFAULTS_VERSION = "interest_defaults_version"
         private const val KEY_DISABLED_CHANNELS = "recall_channels_disabled"
         private const val KEY_CHANNEL_DEFAULTS_VERSION = "recall_channel_defaults_version"
         private const val KEY_RSSHUB = "rsshub_base_url"

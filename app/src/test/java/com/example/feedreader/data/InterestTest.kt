@@ -64,6 +64,24 @@ class InterestsTest {
         }
     }
 
+    /**
+     * 钉住 2026-09-25 重排后的默认形状：[EFFECTIVE_COUNT] 个启用 + 4 个关着备用 = [MAX_COUNT]。
+     * 改默认兴趣时这个测试会提醒你别把启用数弄超（超了首页有人在 EFFECTIVE_COUNT 之外被静默忽略）。
+     */
+    @Test
+    fun defaultInterestShape() {
+        val defaults = Interests.DEFAULT
+        assertEquals("总数应刚好等于 MAX_COUNT", Interests.MAX_COUNT, defaults.size)
+        assertEquals("启用的应刚好等于 EFFECTIVE_COUNT", Interests.EFFECTIVE_COUNT, defaults.count { it.enabled })
+        assertEquals(
+            "启用的不该有重复 id",
+            defaults.filter { it.enabled }.size,
+            defaults.filter { it.enabled }.map { it.id }.distinct().size,
+        )
+        // 新旧默认必须不同，否则 InterestStore 的迁移判断（是否还停在旧默认）会永远为真
+        assertNotEquals("新旧默认不能相同", Interests.OLD_DEFAULT, defaults)
+    }
+
     // ------------------------------------------------------------------ 添加校验
 
     @Test

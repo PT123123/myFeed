@@ -71,11 +71,37 @@ class SynonymDict(private val table: Map<String, List<String>>) {
                 "kotlin" to listOf("jvm", "协程", "compose", "android"),
                 "android" to listOf("kotlin", "compose", "gradle", "apk", "安卓"),
 
-                // —— 量化 / 金融 ——（补「量化交易」被「量化」抢词面的缺口）
+                // —— 量化 / 金融 / 民生 ——（补「量化交易」被「量化」抢词面的缺口）
                 "量化交易" to listOf("a股", "择时", "回测", "因子", "策略", "收益率", "持仓", "止损"),
                 "量化" to listOf("回测", "因子", "策略", "收益率"),
-                "股票" to listOf("a股", "港股", "美股", "指数", "板块", "行情"),
+                "股票" to listOf("a股", "港股", "美股", "指数", "板块", "行情", "个股", "市值"),
                 "投资" to listOf("资产配置", "估值", "收益率", "风险", "基金"),
+                "金融" to listOf("finance", "经济", "市场", "央行", "加息", "通胀", "股市", "债市", "汇率", "机构"),
+                "经济" to listOf("macro", "gdp", "通胀", "cpi", "央行", "财政", "就业", "景气"),
+                "涨价" to listOf("通胀", "物价", "cpi", "成本", "民生", "提价"),
+                "民生" to listOf("消费", "物价", "涨价", "通胀", "就业", "收入"),
+                "扩产" to listOf("产能", "供给", "投产", "制造", "生产", "基建"),
+
+                // —— 医药 / 生物 ——（用户追药学 / 病理 / 新药）
+                "药" to listOf("pharmacology", "制药", "药物", "新药", "临床", "biotech", "fda"),
+                "药学" to listOf("pharmacology", "制药", "药物", "新药", "临床"),
+                "pharmacology" to listOf("药", "制药", "药物", "新药", "临床", "biotech", "fda", "drug"),
+                "drug discovery" to listOf("新药", "研发", "临床", "biotech", "制药", "靶点"),
+                "制药" to listOf("药", "新药", "biotech", "临床", "fda", "管线"),
+                "临床" to listOf("临床试验", "phase", "新药", "fda", "受试者"),
+                "生物" to listOf("biology", "生物医药", "基因", "细胞", "biotech"),
+
+                // —— 健身 / 肌肥大 ——（用户追增肌 / 力量）
+                "hypertrophy" to listOf("肌肥大", "增肌", "肌肉", "训练量", "rep range", "strength", "力量"),
+                "肌肥大" to listOf("hypertrophy", "增肌", "肌肉生长", "训练量", "rep range"),
+                "增肌" to listOf("hypertrophy", "肌肥大", "肌肉", "蛋白质", "力量"),
+                "力量训练" to listOf("strength", "肌力", "训练", "rep", "负荷"),
+
+                // —— 半导体 / 硬件 ——（用户追 GPU / TSMC / AI 基础设施）
+                "semiconductor" to listOf("半导体", "芯片", "晶圆", "fab", "tsmc", "gpu", "ai 基础设施"),
+                "半导体" to listOf("semiconductor", "芯片", "晶圆", "fab", "tsmc", "制程"),
+                "芯片" to listOf("semiconductor", "半导体", "gpu", "npu", "制程", "fab"),
+                "gpu" to listOf("显卡", "算力", "cuda", "ai 芯片", "半导体"),
 
                 // —— 隐私 / 安全 ——
                 "隐私" to listOf("加密", "指纹", "追踪", "零知识", "匿名", "权限", "数据泄露"),

@@ -53,10 +53,38 @@ object Interests {
     val WEIGHT_STEPS = listOf(0.5f, 1f, 1.5f, 2f)
 
     /**
-     * 首次运行的默认兴趣。
-     * 这几个词都在带标注的评测集上验过能稳定召回（MAP 0.826 / MRR 1.000 那批）。
+     * 首次运行的默认兴趣（2026-09-25 重排）。
+     *
+     * 这是按 ted 真实兴趣压平后的结果——他给的层级树有近 40 个叶子词，但 [EFFECTIVE_COUNT]
+     * 一轮只取 8 个，所以用「主题级关键词」压成 12 个：前 8 个启用，后 4 个关着当备用轮换
+     * （凑满 [MAX_COUNT]=12）。每个词覆盖他树里的一大簇，而不是把每个叶子都塞进来。
+     *
+     * 提醒：Pharmacology / Drug Discovery / Hypertrophy / 金融 这几块目前「有词无源」——
+     * 内置源里还没有对应领域的 feed（医学/健身/财经源在 [FeedSources.DEFAULT] 一并补）。
+     * 先把词给了，让用户在设置页能选上，源那侧补完后这几块才真能出内容。
      */
     val DEFAULT: List<Interest> = listOf(
+        Interest("AI Agent", 2f),
+        Interest("LLM", 1.5f),
+        Interest("Rust", 1.5f),
+        Interest("Pharmacology", 1.5f),
+        Interest("Drug Discovery", 1f),
+        Interest("Hypertrophy", 1.5f),
+        Interest("Semiconductor", 1f),
+        Interest("金融", 1f),
+        // —— 关着备用，轮换用（凑满 MAX_COUNT = 12）——
+        Interest("C++", 0.5f, enabled = false),
+        Interest("Neuroscience", 0.5f, enabled = false),
+        Interest("Strength Training", 0.5f, enabled = false),
+        Interest("Japanese", 0.5f, enabled = false),
+    )
+
+    /**
+     * 2026-09-25 之前的出厂默认兴趣。只用于 [InterestStore] 的默认值迁移：
+     * 判断「用户是不是还停留在旧默认」来避免覆盖个性化列表。不要删除，也不要改。
+     */
+    @Suppress("unused")
+    val OLD_DEFAULT: List<Interest> = listOf(
         Interest("AI 大模型", 2f),
         Interest("开源项目", 1.5f),
         Interest("独立开发", 1.5f),

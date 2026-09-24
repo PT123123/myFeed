@@ -118,6 +118,21 @@ object FeedSources {
      * 判别一个源该不该默认开，看的不是内容长短，是**有没有具体的人、有没有一手信息、
      * 写不写自己的判断**。阮一峰一条源的信噪比超过那批加起来，就是这个道理。
      *
+     * ### 第二批实测（2026-09-25 傍晚，补医学 / 健身 / 财经覆盖）
+     *
+     * 用户兴趣扩到药学、肌肥大、金融民生后，这几个领域在内置源里是空的，得补。
+     * 本机家宽 + 浏览器 UA 探过：
+     *
+     * - **通过的英文源**（200 + `<rss` + items>0 + < 5MB）：Fierce Biotech(25) /
+     *   STAT News(20) / ScienceDaily 医学健康(60)（医学）；Stronger By Science(15) /
+     *   Fitness Volt(10)（健身）；MarketWatch(10)（财经）。已全部内置。
+     * - **被挡的**：BioPharma Dive、Medical Xpress 403（Cloudflare）；BarBend 404；
+     *   Nature Biotech 是 RDF（item 少且解析不稳，没要）；CNBC Markets 只 1 条（等于没有）。
+     * - **中文财经源全军覆没**：华尔街见闻 / 第一财经 / 财新国际 / 21 世纪经济报道 /
+     *   东方财富(RSSHub) / 证券时报 全部 404/403/空。所以财经只能用英文 MarketWatch
+     *   兜底，再靠 [SynonymDict] 的「金融 / 经济 / 涨价 / 民生 / 扩产」同义词去捞
+     *   中文语境的文章——纯语义对小模型跨语言不稳，词法扩展更可靠。
+     *
      * 用户自己加的源不受这里影响（见 [FeedSource.custom]）—— 那才是「什么算垃圾」
      * 这个问题真正的答案：让用户自己定，而不是替他定。
      */
@@ -187,6 +202,21 @@ object FeedSources {
             "https://rsshub.liumingye.cn/v2ex/topics/hot",
             "热点",
         ),
+
+        // —— 医学 / 生物（2026-09-25 补：用户追药学 / 病理 / 新药）——
+        // 全是英文权威源：中文医学 RSS 几乎没有能用的。
+        FeedSource("fiercebiotech", "Fierce Biotech", "https://www.fiercebiotech.com/rss/xml", "医学"),
+        FeedSource("statnews", "STAT News", "https://www.statnews.com/feed/", "医学"),
+        FeedSource("sciencedaily_health", "ScienceDaily 医学健康", "https://www.sciencedaily.com/rss/health_medicine.xml", "医学"),
+
+        // —— 健身 / 肌肥大（2026-09-25 补：用户追增肌 / 力量）——
+        FeedSource("strongerbyscience", "Stronger By Science", "https://www.strongerbyscience.com/feed/", "健身"),
+        FeedSource("fitnessvolt", "Fitness Volt", "https://fitnessvolt.com/feed/", "健身"),
+
+        // —— 财经 / 民生（2026-09-25 补：用户追涨价 / 扩产 / 全球市场）——
+        // 中文财经 RSS 实测全 404/403，只能用英文源兜底；靠 SynonymDict 的
+        // 「金融 / 经济 / 涨价 / 民生 / 扩产」同义词去捞中文语境的文章。
+        FeedSource("marketwatch", "MarketWatch", "https://www.marketwatch.com/rss/topstories", "财经"),
 
         // —— 以下是默认不拉的：靠流量和软文变现的媒体号 ——
         FeedSource("ifanr", "爱范儿", "https://www.ifanr.com/feed", "科技", defaultEnabled = false),
