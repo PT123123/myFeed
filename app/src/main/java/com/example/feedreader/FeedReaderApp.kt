@@ -94,6 +94,9 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
     val retentionDays by viewModel.retentionDays.collectAsState()
     val cacheMaxMb by viewModel.cacheMaxMb.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
+    val semanticStatus by viewModel.semanticStatus.collectAsState()
+    val modelState by viewModel.modelState.collectAsState()
+    val modelBytes by viewModel.modelBytes.collectAsState()
     val context = LocalContext.current
 
     var query by rememberSaveable { mutableStateOf("") }
@@ -147,11 +150,19 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
             retentionDays = retentionDays,
             cacheMaxMb = cacheMaxMb,
             searchEngine = searchEngine,
+            semanticStatus = semanticStatus,
+            modelState = modelState,
+            modelBytes = modelBytes,
+            modelExpectedBytes = viewModel.modelExpectedBytes,
             onToggleSource = viewModel::setSourceEnabled,
             onToggleInAppBrowser = viewModel::setUseInAppBrowser,
             onSetRetentionDays = viewModel::setCacheRetentionDays,
             onSetCacheMaxMb = viewModel::setCacheMaxMb,
             onSetSearchEngine = viewModel::setSearchEngine,
+            onSyncSemantic = viewModel::syncSemanticState,
+            onDownloadModel = viewModel::downloadModel,
+            onLoadEncoder = viewModel::loadEncoder,
+            onDeleteModel = viewModel::deleteModel,
             onPruneCache = { viewModel.pruneNow() },
             onClearFeedCache = { viewModel.clearCacheNow() },
             onClearWebCache = { clearWebViewCache(context) },

@@ -10,6 +10,10 @@ import com.example.feedreader.data.FeedSource
 import com.example.feedreader.data.FeedSources
 import com.example.feedreader.data.SearchEngine
 import com.example.feedreader.data.SettingsStore
+import io.github.pt123123.semantic.BgeSmallZh
+import io.github.pt123123.semantic.ModelState
+import io.github.pt123123.semantic.SemanticEngine
+import io.github.pt123123.semantic.SemanticStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +34,30 @@ class FeedViewModel @JvmOverloads constructor(
 ) : AndroidViewModel(app) {
 
     private val settings = SettingsStore(app)
+
+    /**
+     * 端侧语义模型的持有者。
+     *
+     * 挂在 ViewModel 上而不是界面里：加载要读 24MB 模型再建图 + 预热，几百毫秒起步，
+     * 界面重组或切页不能把它丢掉。
+     *
+     * **刻意不在 init 里预加载**：模型没下载、或用户根本不在乎语义推荐时，
+     * 不该白白付出这份代价。加载时机是「下载完成之后」或「用户在设置页点自检」。
+     */
+    private val semanticEngine = SemanticEngine(app)
+
+    private val _semanticStatus = MutableStateFlow<SemanticStatus>(SemanticStatus.NotLoaded)
+    val semanticStatus: StateFlow<SemanticStatus> = _semanticStatus.asStateFlow()
+
+    private val _modelState = MutableStateFlow<ModelState>(ModelState.Absent)
+    val modelState: StateFlow<ModelState> = _modelState.asStateFlow()
+
+    /** 模型占用的磁盘字节：装好了就是完整大小，否则是半成品的进度。 */
+    private val _modelBytes = MutableStateFlow(0L)
+    val modelBytes: StateFlow<Long> = _modelBytes.asStateFlow()
+
+    /** 模型文件的目标大小，给界面显示「共 23.0 MB」。 */
+    val modelExpectedBytes: Long get() = BgeSmallZh.SIZE_BYTES
 
     private val _state = MutableStateFlow(FeedUiState())
     val state: StateFlow<FeedUiState> = _state.asStateFlow()
@@ -83,6 +111,91 @@ class FeedViewModel @JvmOverloads constructor(
     fun setSearchEngine(engine: SearchEngine) {
         settings.searchEngineId = engine.id
         _searchEngine.value = engine
+    }
+
+    // ------------------------------------------------------------------ 语义模型
+
+    private var modelJob: Job? = null
+    private var encoderJob: Job? = null
+
+    /** 从磁盘同步一次模型状态。进设置页时调；**不触发加载**。 */
+    fun syncSemanticState() {
+        viewModelScope.launch {
+            val installed = withContext(Dispatchers.IO) { semanticEngine.isModelInstalled() }
+            _modelBytes.value = withContext(Dispatchers.IO) {
+                if (installed) BgeSmallZh.SIZE_BYTES else semanticEngine.partialBytes()
+            }
+            if (installed) {
+                if (_modelState.value !is ModelState.Ready) {
+                    _modelState.value = ModelState.Ready(BgeSmallZh.SIZE_BYTES)
+                }
+            } else if (_modelState.value !is ModelState.Downloading) {
+                // 磁盘上确实没有模型，把上次失败留下的红字也清掉，回到「未下载」
+                _modelState.value = ModelState.Absent
+                if (semanticEngine.status is SemanticStatus.NotLoaded) {
+                    _semanticStatus.value = SemanticStatus.NotLoaded
+                }
+            }
+        }
+    }
+
+    /**
+     * 下载模型，装好后立刻加载并预热。
+     *
+     * 下载和加载放在同一个任务里是有意的：用户点「下载」想要的最终结果是
+     * 「语义推荐能用了」，而不是「文件躺在磁盘上」。中间任何一步失败都要报出来。
+     */
+    fun downloadModel() {
+        if (modelJob?.isActive == true) return
+        _modelState.value = ModelState.Downloading(
+            source = semanticEngine.sources.firstOrNull()?.name.orEmpty(),
+            received = 0L,
+            total = BgeSmallZh.SIZE_BYTES,
+        )
+        modelJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    semanticEngine.installModel { state ->
+                        _modelState.value = state
+                        if (state is ModelState.Downloading) _modelBytes.value = state.received
+                    }
+                }
+            } catch (error: Throwable) {
+                _modelState.value = ModelState.Failed(error.message ?: "下载失败")
+                return@launch
+            }
+            _modelBytes.value = BgeSmallZh.SIZE_BYTES
+            loadEncoder()
+        }
+    }
+
+    /**
+     * 加载编码器并预热，结果写进 [semanticStatus]。
+     * 下载完成后自动调一次；设置页的「自检」也调它。
+     */
+    fun loadEncoder() {
+        if (encoderJob?.isActive == true) return
+        encoderJob = viewModelScope.launch {
+            _semanticStatus.value = SemanticStatus.Loading
+            // Default 而不是 IO：建图和预热是纯 CPU 计算，别去占网络那组线程
+            withContext(Dispatchers.Default) { semanticEngine.getOrLoad() }
+            _semanticStatus.value = semanticEngine.status
+        }
+    }
+
+    /** 删除模型与已加载的编码器。下载中的任务也会被取消。 */
+    fun deleteModel() {
+        modelJob?.cancel()
+        encoderJob?.cancel()
+        semanticEngine.removeModel()
+        _modelState.value = ModelState.Absent
+        _semanticStatus.value = SemanticStatus.NotLoaded
+        _modelBytes.value = 0L
+    }
+
+    override fun onCleared() {
+        semanticEngine.close()
+        super.onCleared()
     }
 
     /** 改保留天数：立刻按新策略清理，不用等下次刷新。 */
