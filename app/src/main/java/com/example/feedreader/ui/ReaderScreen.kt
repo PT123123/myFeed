@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -136,6 +137,9 @@ fun ReaderScreen(
     DisposableEffect(webView) {
         onDispose {
             webView.stopLoading()
+            // 先摘下来再销毁：销毁顺序和 Compose 移除视图的顺序不保证，
+            // 挂在树上直接 destroy() 在部分 ROM 上会出问题
+            (webView.parent as? ViewGroup)?.removeView(webView)
             webView.destroy()
         }
     }
