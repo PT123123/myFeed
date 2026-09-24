@@ -1,0 +1,16 @@
+{
+  "query": "llm",
+  "results": [
+    {
+      "title": "Tavily result one",
+      "url": "https://example.com/t1",
+      "content": "Extracted content for the first result.",
+      "score": 0.91
+    },
+    {
+      "title": "Tavily result two",
+      "url": "https://example.com/t2",
+      "content": "Extracted content for the second result."
+    }
+  ]
+}

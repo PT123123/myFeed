@@ -1,0 +1,17 @@
+{
+  "type": "search",
+  "web": {
+    "results": [
+      {
+        "title": "Brave result one",
+        "url": "https://example.com/b1",
+        "description": "Description of the first brave result."
+      },
+      {
+        "title": "Brave result two",
+        "url": "https://example.com/b2",
+        "description": "Description of the second brave result."
+      }
+    ]
+  }
+}

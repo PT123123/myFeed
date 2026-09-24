@@ -2,6 +2,7 @@ package com.example.feedreader.ui
 
 import com.example.feedreader.data.Interest
 import com.example.feedreader.data.Interests
+import com.example.feedreader.data.SearchKeyProvider
 import com.example.feedreader.data.recall.RecallChannels
 import io.github.pt123123.semantic.VectorStats
 
@@ -28,6 +29,8 @@ data class RecallChannelSetting(
 data class RecommendSettings(
     val interests: List<Interest> = emptyList(),
     val channels: List<RecallChannelSetting> = emptyList(),
+    /** 「填 key 才能用」的搜索服务清单；key 本身也在这里回显（设备本地，UI 用密码框遮罩）。 */
+    val searchKeys: List<SearchKeyProvider> = emptyList(),
     val rssHubBaseUrl: String = "",
     val semanticEnabled: Boolean = true,
     val showReason: Boolean = true,

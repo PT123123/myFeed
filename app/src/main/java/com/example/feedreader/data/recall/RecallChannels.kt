@@ -43,13 +43,28 @@ object RecallChannels {
      *
      * @param rssHubBaseUrl 用户填的自建实例地址，空串走内置公共镜像。
      */
-    fun builtIn(rssHubBaseUrl: String = ""): List<RecallChannel> = listOf(
+    /**
+     * 完整的召回通道列表。
+     *
+     * @param rssHubBaseUrl 用户填的自建实例地址，空串走内置公共镜像。
+     * @param searchKeys 各 keyed 搜索服务的 key 快照（id -> key）；空串 / 缺省 = 该通道不开通。
+     * @param keyedHttp 带鉴权的 HTTP 实现；测试里传 [KeyedHttpNoop]。
+     */
+    fun builtIn(
+        rssHubBaseUrl: String = "",
+        searchKeys: Map<String, String> = emptyMap(),
+        keyedHttp: KeyedHttp = KeyedHttpNoop,
+    ): List<RecallChannel> = listOf(
         CsdnChannel(),
         V2exChannel(),
         HackerNewsChannel(),
         GitHubSearchChannel(),
         StackExchangeChannel(),
         RssHubChannel(rssHubBaseUrl),
+        PerplexityChannel(searchKeys["perplexity"].orEmpty(), keyedHttp),
+        MetasoChannel(searchKeys["metaso"].orEmpty(), keyedHttp),
+        TavilyChannel(searchKeys["tavily"].orEmpty(), keyedHttp),
+        BraveChannel(searchKeys["brave"].orEmpty(), keyedHttp),
     )
 
     /**
@@ -89,6 +104,10 @@ object RecallChannels {
         "stackexchange" -> "Stack Overflow 问答；海外"
         "arxiv" -> "arXiv 论文搜索；免 key，关键词直接搜论文（英文语料，中文词搜不到）"
         RssHubChannel.ID -> "微博关键词；公共镜像可用，也可填自建实例以更稳"
+        "perplexity" -> "Perplexity Sonar；填了 key 才去搜，返回带引用的来源"
+        "metaso" -> "秘塔 Metaso；中文 AI 搜索，填 key 启用（国内可达）"
+        "tavily" -> "Tavily；AI 优化的全网搜索，填 key 启用"
+        "brave" -> "Brave Search；独立索引的网页搜索，填 key 启用（用 X-Subscription-Token）"
         else -> ""
     }
 }

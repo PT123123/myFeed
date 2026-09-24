@@ -1,0 +1,18 @@
+{
+  "credits": 3,
+  "total": 21,
+  "webpages": [
+    {
+      "title": "中文搜索结果一",
+      "link": "https://example.com/cn",
+      "snippet": "这是第一条摘要。",
+      "score": "medium",
+      "date": "2024-01-01"
+    },
+    {
+      "title": "中文搜索结果二",
+      "link": "https://example.com/cn2",
+      "snippet": "这是第二条摘要。"
+    }
+  ]
+}

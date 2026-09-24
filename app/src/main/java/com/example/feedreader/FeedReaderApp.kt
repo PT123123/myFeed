@@ -186,6 +186,7 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
             onToggleInterest = viewModel::setInterestEnabled,
             onSetInterestWeight = viewModel::setInterestWeight,
             onToggleRecallChannel = viewModel::setRecallChannelEnabled,
+            onSetSearchKey = viewModel::setSearchKey,
             onSetRssHubUrl = viewModel::setRssHubBaseUrl,
             onToggleSemanticEnabled = viewModel::setSemanticEnabled,
             onToggleShowReason = viewModel::setShowRecommendReason,

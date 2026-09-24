@@ -1,0 +1,30 @@
+{
+  "id": "req-1",
+  "model": "sonar",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "A synthesized answer about the latest pharmacology papers."
+      }
+    }
+  ],
+  "search_results": [
+    {
+      "title": "Example pharmacology result",
+      "url": "https://example.com/a",
+      "date": "2026-09-20",
+      "snippet": "Some useful snippet about the study."
+    },
+    {
+      "title": "Another result",
+      "url": "https://example.com/b",
+      "date": "",
+      "snippet": "Second snippet without a date."
+    }
+  ],
+  "citations": [
+    "https://example.com/skip-me-citations-when-search-results-present"
+  ]
+}

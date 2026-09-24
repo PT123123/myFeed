@@ -1,5 +1,6 @@
 package com.example.feedreader.ui
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,13 +52,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.feedreader.data.CacheStats
 import com.example.feedreader.data.FeedSource
 import com.example.feedreader.data.Interest
 import com.example.feedreader.data.Interests
 import com.example.feedreader.data.SearchEngine
+import com.example.feedreader.data.SearchKeyProvider
 import com.example.feedreader.data.SettingsStore
 import com.example.feedreader.data.SourceRules
 import io.github.pt123123.semantic.ModelState
@@ -93,6 +97,7 @@ fun SettingsScreen(
     onToggleInterest: (String, Boolean) -> Unit,
     onSetInterestWeight: (String, Float) -> Unit,
     onToggleRecallChannel: (String, Boolean) -> Unit,
+    onSetSearchKey: (String, String) -> Unit,
     onSetRssHubUrl: (String) -> Unit,
     onToggleSemanticEnabled: (Boolean) -> Unit,
     onToggleShowReason: (Boolean) -> Unit,
@@ -308,6 +313,21 @@ fun SettingsScreen(
                     subtitle = "公共镜像只对少数关键词路由可用，填自建地址更稳",
                     value = recommend.rssHubBaseUrl.ifEmpty { "公共镜像" },
                     onClick = { rssHubDialog = true },
+                )
+            }
+
+            item { SectionDivider() }
+            item {
+                SectionHeader(
+                    title = "AI / 全网搜索（填 key 启用）",
+                    caption = "Perplexity / 秘塔 / Tavily / Brave：填了 key 才会去搜，结果直接进首页流。" +
+                        "这些服务多数在国外，需要能直连的网络（如 VPN）；秘塔国内可达。",
+                )
+            }
+            items(recommend.searchKeys, key = { it.id }) { provider ->
+                SearchKeyRow(
+                    provider = provider,
+                    onCommit = { onSetSearchKey(provider.id, it) },
                 )
             }
 
@@ -1012,6 +1032,62 @@ private fun ChoiceRow(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.primary,
         )
+    }
+}
+
+/**
+ * 一行「填 key」：名字 + 密码框 + 「获取 key」链接 + 保存。
+ *
+ * key 不在每次按键时存盘 —— 那样每个字符都会触发一次整轮召回重建，
+ * 一个 40 位的 key 敲完就是 40 次重刷。所以本地暂存、点「保存」才提交。
+ * 「获取 key」直接拉起浏览器跳到对应官网的开 key 页，省得用户自己找。
+ */
+@Composable
+private fun SearchKeyRow(
+    provider: SearchKeyProvider,
+    onCommit: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    var text by remember(provider.id) { mutableStateOf(provider.key) }
+
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = provider.name,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(provider.siteUrl)))
+                    } catch (_: Exception) {
+                        // 没有浏览器 / 链接坏掉：静默失败，链接本来就是个便利入口
+                    }
+                },
+            ) { Text("获取 key") }
+        }
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            singleLine = true,
+            label = { Text("API Key（留空则不开通）") },
+            placeholder = { Text("粘贴你的 key") },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HintText("填了 key 才生效；通道开关在上方「召回通道」里")
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(onClick = { onCommit(text.trim()) }) { Text("保存") }
+        }
     }
 }
 

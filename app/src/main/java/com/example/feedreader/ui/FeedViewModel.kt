@@ -19,7 +19,10 @@ import com.example.feedreader.data.SearchEngine
 import com.example.feedreader.data.SettingsStore
 import com.example.feedreader.data.SourceRules
 import com.example.feedreader.data.SourceStore
+import com.example.feedreader.data.SearchApiKeys
+import com.example.feedreader.data.SearchKeyProvider
 import com.example.feedreader.data.recall.OkHttpGet
+import com.example.feedreader.data.recall.OkHttpKeyed
 import com.example.feedreader.data.recall.RecallChannels
 import com.example.feedreader.data.recall.RecallService
 import com.example.feedreader.recommend.RecommendEngine
@@ -79,15 +82,20 @@ class FeedViewModel @JvmOverloads constructor(
     /** 文章句向量的磁盘缓存。和 [cache] 同构，只是键换成了「文章来自哪条通道」。 */
     private val vectorStore = VectorStore.forApp(app)
 
+    /** 「填 key 才能用」的搜索服务的凭据存储。 */
+    private val searchKeysStore = SearchApiKeys(app)
+
     /**
-     * 召回用的 HTTP 客户端。
+     * 召回用的 HTTP 客户端（普通 GET 通道 + 带 key 的搜索 API 共用同一个底层 client）。
      *
      * 用和订阅抓取同一套超时参数（8s 连接 / 18s 整调用），这样两边的失败手感一致 ——
      * `RecallService` 自己还有一层 12s 的单路超时兜在前面。
      * 单独一个实例而不是和 [repository] 共用，是因为两者打的是完全不同的主机，
      * 共用连接池省不下什么，反而把两个模块耦合在一起。
      */
-    private val http = OkHttpGet(FeedRepository.defaultClient())
+    private val client = FeedRepository.defaultClient()
+    private val http = OkHttpGet(client)
+    private val keyedHttp = OkHttpKeyed(client)
 
     /**
      * 推荐链路的总装。
@@ -360,6 +368,19 @@ class FeedViewModel @JvmOverloads constructor(
         load(restart = true)
     }
 
+    /**
+     * 保存某个搜索服务的 API key。
+     *
+     * 和开关通道一样必须**重新召回**：key 变了候选池就变了。清掉 key 不会立刻把首页已有的
+     * 那些结果删掉 —— 它们已经在缓存里，下一轮刷新才会按新配置重算。
+     */
+    fun setSearchKey(id: String, key: String) {
+        searchKeysStore.setKey(id, key)
+        recommendEngine = buildEngine()
+        reloadRecommendFromStore()
+        load(restart = true)
+    }
+
     /** 关掉语义排序。编码器不卸载 —— 关掉只是这一轮不用它，留着重开时省一次加载。 */
     fun setSemanticEnabled(value: Boolean) {
         interestStore.semanticEnabled = value
@@ -388,17 +409,24 @@ class FeedViewModel @JvmOverloads constructor(
 
     private fun buildEngine(): RecommendEngine {
         val disabled = interestStore.disabledRecallChannels
-        val channels = RecallChannels.builtIn(interestStore.rssHubBaseUrl)
-            .filter { it.id !in disabled }
+        val channels = RecallChannels.builtIn(
+            rssHubBaseUrl = interestStore.rssHubBaseUrl,
+            searchKeys = searchKeysStore.toMap(),
+            keyedHttp = keyedHttp,
+        ).filter { it.id !in disabled }
         return RecommendEngine(recall = RecallService(channels, http), vectors = vectorStore)
     }
 
     private fun readRecommendSettings(): RecommendSettings {
         val disabled = interestStore.disabledRecallChannels
+        val keys = searchKeysStore
         return RecommendSettings(
             interests = interestStore.interests,
             channels = RecallChannels.settings(interestStore.rssHubBaseUrl)
                 .map { RecallChannelSetting(it.id, it.name, it.hint, it.id !in disabled) },
+            searchKeys = SearchApiKeys.PROVIDERS.map { p ->
+                SearchKeyProvider(p.id, p.name, p.siteUrl, key = keys[p.id])
+            },
             rssHubBaseUrl = interestStore.rssHubBaseUrl,
             semanticEnabled = interestStore.semanticEnabled,
             showReason = interestStore.showRecommendReason,
