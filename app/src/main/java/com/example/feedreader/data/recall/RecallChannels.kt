@@ -87,6 +87,7 @@ object RecallChannels {
         "hn-search" -> "Hacker News 全文搜索；海外，速度取决于网络"
         "github-search" -> "GitHub 仓库搜索；未认证限 10 次/分钟"
         "stackexchange" -> "Stack Overflow 问答；海外"
+        "arxiv" -> "arXiv 论文搜索；免 key，关键词直接搜论文（英文语料，中文词搜不到）"
         RssHubChannel.ID -> "微博关键词；公共镜像可用，也可填自建实例以更稳"
         else -> ""
     }
