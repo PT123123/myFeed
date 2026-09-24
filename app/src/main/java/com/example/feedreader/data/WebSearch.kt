@@ -21,6 +21,13 @@ import java.net.URLEncoder
  *
  * 实测可达的引擎：cn.bing.com（真结果页）、sogou.com。百度对非浏览器客户端
  * 返回验证页（1.5KB text/plain），所以没内置。
+ *
+ * **上面那三条结论只针对「通用网页搜索」**，别把它推广成「拿不到关键词召回」。
+ * 垂直语料是另一回事 —— CSDN 搜索、V2EX(sov2ex)、HN Algolia、GitHub 搜索、
+ * Stack Exchange 都免费、无需 key、支持关键词查询，微博关键词还能走 RSSHub。
+ * 详见 `com.example.feedreader.data.recall` 包：那条路线**不用打开浏览器**，
+ * 直接把结果拿回列表里参与排序。本枚举现在的定位是「在当前兴趣词上
+ * 手动去网页里翻更多」的出口，而不是唯一的搜索手段。
  */
 enum class SearchEngine(
     val id: String,
