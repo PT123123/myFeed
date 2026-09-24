@@ -10,17 +10,6 @@ class SettingsStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
-    /**
-     * 已启用的订阅源 id。
-     * 没写过（首次运行）时默认全部启用；全部关掉是合法状态，首页会给引导。
-     */
-    var enabledSourceIds: Set<String>
-        get() = prefs.getStringSet(KEY_SOURCES, null)?.toSet()
-            ?: FeedSources.DEFAULT.map { it.id }.toSet()
-        set(value) {
-            prefs.edit().putStringSet(KEY_SOURCES, value).apply()
-        }
-
     /** true = 用内置浏览器打开文章；false = 交给系统浏览器。 */
     var useInAppBrowser: Boolean
         get() = prefs.getBoolean(KEY_IN_APP_BROWSER, true)
@@ -66,8 +55,13 @@ class SettingsStore(context: Context) {
 
         fun sizeLabel(mb: Int): String = if (mb <= 0) "不限制" else "$mb MB"
 
-        private const val FILE = "myfeed_settings"
-        private const val KEY_SOURCES = "enabled_sources"
+        /**
+         * 偏好文件。**对 [SourceStore] 公开**：源的开关历史上存在这个文件的
+         * `enabled_sources` key 里，那边做格式迁移时要原地把它读出来。
+         * 源码里的 key 名见 [SourceStore] 的 `KEY_LEGACY_ENABLED`。
+         */
+        const val FILE = "myfeed_settings"
+
         private const val KEY_IN_APP_BROWSER = "in_app_browser"
         private const val KEY_RETENTION = "cache_retention_days"
         private const val KEY_MAX_MB = "cache_max_mb"

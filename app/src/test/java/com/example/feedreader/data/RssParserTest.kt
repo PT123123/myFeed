@@ -2,6 +2,7 @@ package com.example.feedreader.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.kxml2.io.KXmlParser
@@ -165,5 +166,69 @@ class RssParserTest {
     fun `完全没有条目时返回空列表而不是抛异常`() {
         val xml = "<rss version=\"2.0\"><channel><title>空源</title></channel></rss>"
         assertTrue(newParser().parse(xml, source).isEmpty())
+    }
+
+    // ------------------------------------------------------------------ 频道标题
+
+    /**
+     * 取频道标题时必须**停在第一个条目之前**。条目自己也带 `<title>`，一路扫到底会
+     * 拿到第一篇文章的标题 —— 这个错误很难被发现，因为结果看着挺像回事
+     * （「添加订阅源」时源的名字就变成了某篇文章的标题）。
+     */
+    @Test
+    fun `取频道标题而不是第一篇文章的标题`() {
+        val xml = """
+            <rss version="2.0"><channel>
+              <title>阮一峰的网络日志</title>
+              <link>https://www.ruanyifeng.com/blog/</link>
+              <item><title>科技爱好者周刊（第 320 期）</title><link>https://x/1</link></item>
+            </channel></rss>
+        """.trimIndent()
+
+        assertEquals("阮一峰的网络日志", newParser().feedTitle(xml))
+    }
+
+    @Test
+    fun `Atom 的 feed 标题也能取到`() {
+        val xml = """
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <title>Rust Blog</title>
+              <entry><title>Announcing Rust 1.82</title><link href="https://x/1"/></entry>
+            </feed>
+        """.trimIndent()
+
+        assertEquals("Rust Blog", newParser().feedTitle(xml))
+    }
+
+    /** CDATA 里的标题（Hacker News 那种写法）不能被漏掉。 */
+    @Test
+    fun `CDATA 里的频道标题也能取到`() {
+        val xml = """
+            <rss version="2.0"><channel>
+              <title><![CDATA[Hacker News: Front Page]]></title>
+              <item><title>某篇文章</title></item>
+            </channel></rss>
+        """.trimIndent()
+
+        assertEquals("Hacker News: Front Page", newParser().feedTitle(xml))
+    }
+
+    /** 有些 feed 就是不写频道标题。这时候该老实返回 null 让调用方用域名兜底，而不是编一个。 */
+    @Test
+    fun `没有频道标题时返回 null`() {
+        val xml = """
+            <rss version="2.0"><channel>
+              <item><title>只有条目</title></item>
+            </channel></rss>
+        """.trimIndent()
+
+        assertNull(newParser().feedTitle(xml))
+    }
+
+    /** 纯空白的标题也算没有 —— 否则源的「名字」会是一串空格，界面上就是一行空白。 */
+    @Test
+    fun `频道标题是空白时返回 null`() {
+        val xml = "<rss version=\"2.0\"><channel><title>   </title></channel></rss>"
+        assertNull(newParser().feedTitle(xml))
     }
 }

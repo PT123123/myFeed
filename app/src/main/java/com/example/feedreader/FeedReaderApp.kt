@@ -95,6 +95,7 @@ private const val TAB_CARD = 1
 fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     val sources by viewModel.enabledSources.collectAsState()
+    val allSources by viewModel.allSources.collectAsState()
     val useInAppBrowser by viewModel.useInAppBrowser.collectAsState()
     val cacheStats by viewModel.cacheStats.collectAsState()
     val retentionDays by viewModel.retentionDays.collectAsState()
@@ -158,7 +159,8 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
     if (settingsOpen) {
         BackHandler { settingsOpen = false }
         SettingsScreen(
-            sources = FeedSources.DEFAULT,
+            // 设置页要展示**全部**源（含关掉的、含自建的）才能给出开关
+            sources = allSources,
             enabledIds = sources.map { it.id }.toSet(),
             useInAppBrowser = useInAppBrowser,
             version = BuildConfig.VERSION_NAME,
@@ -172,6 +174,9 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
             modelBytes = modelBytes,
             modelExpectedBytes = viewModel.modelExpectedBytes,
             onToggleSource = viewModel::setSourceEnabled,
+            onAddSource = viewModel::addSource,
+            onRemoveSource = viewModel::removeSource,
+            onImportOpml = viewModel::importOpml,
             onToggleInAppBrowser = viewModel::setUseInAppBrowser,
             onSetRetentionDays = viewModel::setCacheRetentionDays,
             onSetCacheMaxMb = viewModel::setCacheMaxMb,

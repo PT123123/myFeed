@@ -1,6 +1,7 @@
 package com.example.feedreader.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.feedreader.data.Article
@@ -8,13 +9,16 @@ import com.example.feedreader.data.CacheStats
 import com.example.feedreader.data.FeedCache
 import com.example.feedreader.data.FeedRepository
 import com.example.feedreader.data.FeedSource
-import com.example.feedreader.data.FeedSources
 import com.example.feedreader.data.FetchOutcome
 import com.example.feedreader.data.Interest
 import com.example.feedreader.data.InterestStore
 import com.example.feedreader.data.Interests
+import com.example.feedreader.data.OpmlParser
+import com.example.feedreader.data.ProbeResult
 import com.example.feedreader.data.SearchEngine
 import com.example.feedreader.data.SettingsStore
+import com.example.feedreader.data.SourceRules
+import com.example.feedreader.data.SourceStore
 import com.example.feedreader.data.recall.OkHttpGet
 import com.example.feedreader.data.recall.RecallChannels
 import com.example.feedreader.data.recall.RecallService
@@ -34,6 +38,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /**
  * 需要 Application 来拿 SharedPreferences 和缓存目录，所以是 AndroidViewModel。
@@ -48,6 +53,17 @@ class FeedViewModel @JvmOverloads constructor(
     private val settings = SettingsStore(app)
 
     private val interestStore = InterestStore(app)
+
+    /**
+     * 订阅源的开关与自建清单。
+     *
+     * 从 [SettingsStore] 挪出来是这次「源换不掉」改造的核心 —— 源的开放集合
+     * （内置 + 用户自建）和它们各自的开关必须住在一起，否则「关掉一个内置源」
+     * 和「新加一个源」会走两条互不知情的路径。
+     */
+    private val sourceStore = SourceStore(app)
+
+    private val opmlParser = OpmlParser()
 
     /**
      * 端侧语义模型的持有者。
@@ -103,9 +119,18 @@ class FeedViewModel @JvmOverloads constructor(
     private val _state = MutableStateFlow(FeedUiState())
     val state: StateFlow<FeedUiState> = _state.asStateFlow()
 
-    /** 当前启用的订阅源。首页的分类、设置页的开关都以它为准。 */
-    private val _enabledSources = MutableStateFlow(FeedSources.DEFAULT.filter { it.id in settings.enabledSourceIds })
+    /** 当前启用的订阅源。首页和抓取都以它为准。 */
+    private val _enabledSources = MutableStateFlow(sourceStore.enabledSources())
     val enabledSources: StateFlow<List<FeedSource>> = _enabledSources.asStateFlow()
+
+    /**
+     * 内置 + 自建的全部源。设置页的源列表读它。
+     *
+     * 和 [enabledSources] 分开两条流：设置页要展示所有源（包括关掉的那些）才能给出开关，
+     * 而首页只关心开着的那份。合成一条流会让首页在每次开关时白重组一遍。
+     */
+    private val _allSources = MutableStateFlow(sourceStore.allSources)
+    val allSources: StateFlow<List<FeedSource>> = _allSources.asStateFlow()
 
     private val _useInAppBrowser = MutableStateFlow(settings.useInAppBrowser)
     val useInAppBrowser: StateFlow<Boolean> = _useInAppBrowser.asStateFlow()
@@ -145,11 +170,90 @@ class FeedViewModel @JvmOverloads constructor(
     fun refresh() = load()
 
     fun setSourceEnabled(id: String, enabled: Boolean) {
-        val ids = settings.enabledSourceIds.toMutableSet()
-        if (enabled) ids += id else ids -= id
-        settings.enabledSourceIds = ids
+        sourceStore.setEnabled(id, enabled)
         syncEnabledSources()
         load(restart = true)
+    }
+
+    /**
+     * 添加一个自建源。
+     *
+     * 三步：**校验格式 → 真拉一次 → 落库**。中间那步是关键 —— 用户是从别处抄来一个
+     * 地址，十有八九是错的（给的是首页地址而不是 feed 地址、漏了 `/rss` 后缀、
+     * 复制时带上了空格）。不验就收，结果是他过两天才发现有源一直挂在失败横幅里，
+     * 而那时早忘了自己加过。
+     *
+     * 探测到的频道标题会当默认名字：比让用户手打准，也比域名好看。
+     *
+     * suspend 而不是自己开协程：界面要显示「正在检测…」，也得拿到最终结果才决定关不关窗。
+     */
+    suspend fun addSource(url: String, name: String, category: String): AddSourceResult {
+        SourceRules.addError(url, sourceStore.allSources)?.let {
+            return AddSourceResult.Rejected(it)
+        }
+
+        val probe = repository.probe(url)
+        if (probe is ProbeResult.Failed) {
+            return AddSourceResult.Rejected("拿不到这个地址：${probe.message}")
+        }
+
+        val ok = probe as ProbeResult.Ok
+        val source = sourceStore.addCustom(
+            url = url,
+            // 用户填了就用他填的；没填用探测到的频道标题；都没有再退回域名
+            name = name.trim().ifEmpty { ok.title },
+            category = category,
+        )
+        syncEnabledSources()
+        load(restart = true)
+        return AddSourceResult.Added(source = source, itemCount = ok.itemCount)
+    }
+
+    /**
+     * 删掉一个自建源。内置源删不掉（[SourceStore.removeCustom] 会直接忽略）——
+     * 那是我这一层就想守住的不变量，而不是靠界面上「不显示删除按钮」来守。
+     */
+    fun removeSource(id: String) {
+        sourceStore.removeCustom(id)
+        syncEnabledSources()
+        load(restart = true)
+    }
+
+    /**
+     * 从 OPML 文件导入订阅源。
+     *
+     * 读盘放在这里而不是界面层，是为了把「读文件 + 解析 + 落库」当成一件事 ——
+     * 分散到两边的话，异常处理会在中间断开，用户看到的最多是一句「导入失败」。
+     *
+     * **不逐个探测**：文件里几十个源逐个 probe 就是几十次网络往返。真拉不动的源
+     * 会在下次刷新时进失败横幅，和内置源共用同一套反馈（见 [SourceStore.importSources]）。
+     */
+    suspend fun importOpml(uri: Uri): OpmlImportResult = withContext(Dispatchers.IO) {
+        val text = try {
+            getApplication<Application>().contentResolver.openInputStream(uri)?.use { stream ->
+                stream.bufferedReader().readText()
+            } ?: throw IOException("打不开这个文件")
+        } catch (error: Throwable) {
+            return@withContext OpmlImportResult.Failed(error.message ?: "读取文件失败")
+        }
+
+        val parsed = try {
+            opmlParser.parse(text)
+        } catch (error: Throwable) {
+            // 解析抛异常说明根本不是 XML，和「是 OPML 但没有源」要分开说 ——
+            // 前者是选错了文件，后者是这个文件里确实没订阅。
+            return@withContext OpmlImportResult.Failed("这个文件不是有效的 OPML")
+        }
+        if (parsed.isEmpty()) {
+            return@withContext OpmlImportResult.Failed("文件里没有找到订阅源")
+        }
+
+        val added = sourceStore.importSources(parsed)
+        if (added > 0) {
+            syncEnabledSources()
+            load(restart = true)
+        }
+        OpmlImportResult.Imported(parsed = parsed.size, added = added)
     }
 
     fun setUseInAppBrowser(value: Boolean) {
@@ -465,8 +569,10 @@ class FeedViewModel @JvmOverloads constructor(
     // ------------------------------------------------------------------ 加载
 
     private fun syncEnabledSources() {
-        val ids = settings.enabledSourceIds
-        _enabledSources.value = FeedSources.DEFAULT.filter { it.id in ids }
+        // 两条流一起刷：源**集合**变了（加了/删了自建源）和**开关**变了都会走到这里，
+        // 分开写迟早有一处漏掉，然后设置页和首页对不上
+        _allSources.value = sourceStore.allSources
+        _enabledSources.value = sourceStore.enabledSources()
     }
 
     private suspend fun restoreFromCache(sources: List<FeedSource>) {
@@ -652,6 +758,33 @@ sealed interface AddInterestResult {
     data class Added(val message: String) : AddInterestResult
 
     data class Rejected(val reason: String) : AddInterestResult
+}
+
+/**
+ * 添加订阅源的结果。
+ *
+ * 失败和 [AddInterestResult] 一样要分开处理（关窗 vs 把原因留在输入框下面），
+ * 成功多带两条信息：落库后的源（id 由地址派生，界面不该自己算）和探测到的条目数 ——
+ * 给用户一个「这源确实活着」的直观证据，比一句「添加成功」有说服力。
+ */
+sealed interface AddSourceResult {
+
+    data class Added(val source: FeedSource, val itemCount: Int) : AddSourceResult
+
+    data class Rejected(val reason: String) : AddSourceResult
+}
+
+/**
+ * OPML 导入的结果。
+ *
+ * [parsed] 和 [added] 分开报是有用的：文件里 40 个源只新增了 3 个，说明大部分
+ * 你早就订过了 —— 这比笼统一句「导入成功」让用户清楚得多。
+ */
+sealed interface OpmlImportResult {
+
+    data class Imported(val parsed: Int, val added: Int) : OpmlImportResult
+
+    data class Failed(val reason: String) : OpmlImportResult
 }
 
 /** 缓存铺出来的文章没有分数：给一个空壳，界面据此不显示推荐理由。 */

@@ -1,5 +1,8 @@
 package com.example.feedreader.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,11 +16,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,15 +50,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.feedreader.data.CacheStats
 import com.example.feedreader.data.FeedSource
-import com.example.feedreader.data.FeedSources
 import com.example.feedreader.data.Interest
 import com.example.feedreader.data.Interests
 import com.example.feedreader.data.SearchEngine
 import com.example.feedreader.data.SettingsStore
+import com.example.feedreader.data.SourceRules
 import io.github.pt123123.semantic.ModelState
 import io.github.pt123123.semantic.SemanticStatus
 import kotlinx.coroutines.launch
@@ -75,6 +81,9 @@ fun SettingsScreen(
     modelBytes: Long,
     modelExpectedBytes: Long,
     onToggleSource: (String, Boolean) -> Unit,
+    onAddSource: suspend (url: String, name: String, category: String) -> AddSourceResult,
+    onRemoveSource: (String) -> Unit,
+    onImportOpml: suspend (Uri) -> OpmlImportResult,
     onToggleInAppBrowser: (Boolean) -> Unit,
     onSetRetentionDays: (Int) -> Unit,
     onSetCacheMaxMb: (Int) -> Unit,
@@ -107,6 +116,39 @@ fun SettingsScreen(
     var deleteModelDialog by remember { mutableStateOf(false) }
     var addInterestDialog by remember { mutableStateOf(false) }
     var rssHubDialog by remember { mutableStateOf(false) }
+    var addSourceDialog by remember { mutableStateOf(false) }
+    var deleteSource by remember { mutableStateOf<FeedSource?>(null) }
+
+    /**
+     * OPML 文件选择。
+     *
+     * mime 过滤传通配而不是 text/xml：OPML 是个冷门后缀，各家系统给它的 MIME 五花八门
+     * （text/x-opml、application/xml、干脆 application/octet-stream），按 MIME 过滤会让
+     * 用户在文件选择器里**看不到自己的文件** —— 那种「文件明明在却选不了」的问题，
+     * 比多显示几个无关文件烦人得多。
+     *
+     * 用 SAF 而不是申请存储权限：不需要任何权限，也不用管分区存储那套适配。
+     */
+    val opmlPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = onImportOpml(uri)
+            snackbar.showSnackbar(
+                when (result) {
+                    is OpmlImportResult.Imported -> when {
+                        result.added > 0 ->
+                            "从文件里的 ${result.parsed} 个源中新增了 ${result.added} 个，" +
+                                "下拉刷新开始拉取"
+                        result.parsed > 0 -> "文件里的 ${result.parsed} 个源都已经订阅过了"
+                        else -> "没有可导入的源"
+                    }
+                    is OpmlImportResult.Failed -> result.reason
+                },
+            )
+        }
+    }
 
     // 进设置页时探一次磁盘：模型可能在别的地方被删掉了（清理工具、重装）；
     // 推荐设置同理 —— 换设备恢复备份之后，内存里的快照可能已经不是磁盘上那份了
@@ -114,6 +156,12 @@ fun SettingsScreen(
         onSyncSemantic()
         onSyncRecommend()
     }
+
+    // 源列表分两段呈现：自己加的排最前面（那才是用户真正在意的），内置的在后。
+    // 分段而不是混着排，是因为这两类的可操作范围根本不同 —— 自建的能删，内置的只能关。
+    val customSources = remember(sources) { sources.filter { it.custom } }
+    val builtIn = remember(sources) { sources.filterNot { it.custom } }
+    val enabledCount = remember(sources, enabledIds) { sources.count { it.id in enabledIds } }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -139,19 +187,56 @@ fun SettingsScreen(
         ) {
             item {
                 SectionHeader(
-                    title = "订阅源",
-                    caption = "已启用 ${enabledIds.size} / ${sources.size}",
+                    title = "我添加的源",
+                    caption = if (customSources.isEmpty()) {
+                        "还没有。可以粘一个订阅地址，或者从别的阅读器导出 OPML 导进来"
+                    } else {
+                        "${customSources.size} 个 · 这是你自己的清单，内置列表随版本更新也不会动它"
+                    },
                 )
             }
-            items(sources, key = { it.id }) { source ->
+            item {
+                ActionRow(
+                    title = "添加订阅源",
+                    subtitle = "粘一个 RSS / Atom 地址；会先连一次确认真的能拉到内容",
+                ) { addSourceDialog = true }
+            }
+            item {
+                ActionRow(
+                    title = "从 OPML 导入",
+                    subtitle = "从别的阅读器整体搬过来；已经订阅过的会自动跳过",
+                ) { opmlPicker.launch(arrayOf("*/*")) }
+            }
+            items(customSources, key = { it.id }) { source ->
+                SourceRow(
+                    source = source,
+                    checked = source.id in enabledIds,
+                    onCheckedChange = { onToggleSource(source.id, it) },
+                    onDelete = { deleteSource = source },
+                )
+            }
+
+            item { SectionDivider() }
+            item {
+                SectionHeader(
+                    title = "内置源",
+                    caption = "已启用 ${builtIn.count { it.id in enabledIds }} / ${builtIn.size}" +
+                        " · 标了「默认关闭」的是靠流量和软文变现的媒体号",
+                )
+            }
+            items(builtIn, key = { it.id }) { source ->
                 ToggleRow(
                     title = source.name,
-                    subtitle = "${source.category} · ${source.url}",
+                    subtitle = if (source.defaultEnabled) {
+                        "${source.category} · ${source.url}"
+                    } else {
+                        "默认关闭 · ${source.category} · 选题不差，但稿费来自厂商、流量来自标题"
+                    },
                     checked = source.id in enabledIds,
                     onCheckedChange = { onToggleSource(source.id, it) },
                 )
             }
-            if (enabledIds.isEmpty()) {
+            if (enabledCount == 0) {
                 item {
                     Text(
                         text = "全部关掉了。这不是问题 —— 只要下面有兴趣词，首页照样有内容，" +
@@ -357,8 +442,8 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "内置 ${FeedSources.DEFAULT.size} 个订阅源，下拉刷新，" +
-                            "内容会缓存到本机，断网也能看。",
+                        text = "端侧语义推荐：兴趣词 → 多路召回 → 本地向量排序。" +
+                            "语义模型按需下载，不随安装包分发。内容缓存到本机，断网也能看。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -430,6 +515,33 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deleteModelDialog = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (addSourceDialog) {
+        AddSourceDialog(
+            onAdd = onAddSource,
+            onAdded = { message -> scope.launch { snackbar.showSnackbar(message) } },
+            onDismiss = { addSourceDialog = false },
+        )
+    }
+
+    deleteSource?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteSource = null },
+            title = { Text("删除「${target.name}」？") },
+            text = { Text("只是从订阅列表里移除，不影响你在别处对它的订阅。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteSource = null
+                        onRemoveSource(target.id)
+                    },
+                ) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteSource = null }) { Text("取消") }
             },
         )
     }
@@ -519,6 +631,168 @@ private fun InterestRow(
             )
         }
     }
+}
+
+/**
+ * 一行自建源：开关 + 删除。
+ *
+ * 和内置源的 [ToggleRow] 分开写，是因为多一个删除按钮 —— 用同一个组件加个可选回调
+ * 也能做，但那个回调永远只会对自建源非空，等于把一个恒真的判断塞进通用组件里。
+ */
+@Composable
+private fun SourceRow(
+    source: FeedSource,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = source.name, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = "${source.category} · ${source.url}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = null)
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "删除「${source.name}」",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+/**
+ * 添加订阅源。
+ *
+ * 名字和分类都允许留空：用户通常只想粘一个地址。名字能从 feed 的频道标题里探出来
+ * （比让他手打准），分类留空就归到「自建」—— 逼他填满三个框才能加一个源，
+ * 是把我的实现细节变成他的负担。
+ *
+ * **检测期间不关窗、也禁用取消**：探测是一次真网络请求，中途关掉的话那个源到底加没加
+ * 进去用户永远不知道。宁可让他多等两秒看清楚结果。
+ */
+@Composable
+private fun AddSourceDialog(
+    onAdd: suspend (url: String, name: String, category: String) -> AddSourceResult,
+    onAdded: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var url by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = { if (!checking) onDismiss() },
+        title = { Text("添加订阅源") },
+        text = {
+            Column {
+                HintText(
+                    "填的是 feed 地址，不是网站首页 —— 常见的是 https://某站/feed 或 /rss。" +
+                        "拿不准就去网站页脚找那个橙色的 RSS 图标。",
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = {
+                        url = it
+                        error = null
+                    },
+                    singleLine = true,
+                    isError = error != null,
+                    enabled = !checking,
+                    label = { Text("订阅地址") },
+                    placeholder = { Text("https://example.com/feed") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    enabled = !checking,
+                    label = { Text("名字（留空则用频道标题）") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = category,
+                    onValueChange = { category = it },
+                    singleLine = true,
+                    enabled = !checking,
+                    label = { Text("分类（留空则为「${SourceRules.FALLBACK_CATEGORY}」）") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (checking) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        HintText("正在连一次，确认这个地址真能拉到内容…")
+                    }
+                }
+
+                error?.let {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !checking && url.isNotBlank(),
+                onClick = {
+                    checking = true
+                    error = null
+                    scope.launch {
+                        // 兜一层：onAdd 里任何没被捕获的异常都不该让按钮永远卡在「检测中」
+                        val result = runCatching { onAdd(url, name, category) }
+                            .getOrElse { AddSourceResult.Rejected(it.message ?: "添加失败") }
+
+                        when (result) {
+                            is AddSourceResult.Added -> {
+                                onAdded(
+                                    "已添加「${result.source.name}」，拉到 ${result.itemCount} 条内容",
+                                )
+                                onDismiss()
+                            }
+
+                            is AddSourceResult.Rejected -> error = result.reason
+                        }
+                        checking = false
+                    }
+                },
+            ) { Text("添加") }
+        },
+        dismissButton = {
+            TextButton(enabled = !checking, onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 /** 2.0 显示成 2，0.5 保持 0.5 —— 权重是档位，不该带着没意义的小数尾巴。 */

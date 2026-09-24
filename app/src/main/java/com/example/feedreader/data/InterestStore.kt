@@ -1,6 +1,7 @@
 package com.example.feedreader.data
 
 import android.content.Context
+import com.example.feedreader.data.recall.RecallChannels
 
 /**
  * 兴趣偏好与召回通道的持久化。
@@ -11,6 +12,33 @@ class InterestStore(context: Context) {
 
     private val prefs = context.applicationContext
         .getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    init {
+        migrateChannelDefaults()
+    }
+
+    /**
+     * 出厂默认值改版时的迁移：把新纳入默认关闭的通道补进禁用集合。
+     *
+     * 为什么需要版本号，和 `SourceStore.migrate` 是同一个问题：**「默认关掉某条通道」
+     * 只对从没动过开关的人天然生效**。一旦用户动过任何一个通道开关，磁盘上就有一份
+     * 集合了，此时再改 `RecallChannels.DEFAULT_DISABLED` 对他完全没影响。
+     *
+     * 代价也一样：用户手动打开过某条默认关闭的通道，版本号一涨会被重新关掉。
+     */
+    private fun migrateChannelDefaults() {
+        if (prefs.getInt(KEY_CHANNEL_DEFAULTS_VERSION, 0) >= CHANNEL_DEFAULTS_VERSION) return
+
+        val next = if (prefs.contains(KEY_DISABLED_CHANNELS)) {
+            disabledRecallChannels + RecallChannels.DEFAULT_DISABLED
+        } else {
+            RecallChannels.DEFAULT_DISABLED
+        }
+        prefs.edit()
+            .putStringSet(KEY_DISABLED_CHANNELS, next)
+            .putInt(KEY_CHANNEL_DEFAULTS_VERSION, CHANNEL_DEFAULTS_VERSION)
+            .apply()
+    }
 
     /**
      * 用户的兴趣列表。
@@ -36,9 +64,12 @@ class InterestStore(context: Context) {
      * 不需要一个 `""` 之类的哨兵值去表示默认 —— 那种写法在类型上会退化成 `Any`
      * （`String` 和 `Set<String>` 求最大公共父类），是真实的踩坑点。
      * 同理，以后新增通道默认也是开的，老用户不用手动打开。
+     *
+     * 唯一的例外是 [RecallChannels.DEFAULT_DISABLED]（目前只有 CSDN 那路内容农场）。
      */
     var disabledRecallChannels: Set<String>
-        get() = prefs.getStringSet(KEY_DISABLED_CHANNELS, null)?.toSet() ?: emptySet()
+        get() = prefs.getStringSet(KEY_DISABLED_CHANNELS, null)?.toSet()
+            ?: RecallChannels.DEFAULT_DISABLED
         set(value) {
             prefs.edit().putStringSet(KEY_DISABLED_CHANNELS, value).apply()
         }
@@ -76,9 +107,16 @@ class InterestStore(context: Context) {
         }
 
     companion object {
+        /**
+         * 出厂默认通道开关的版本号。**改 [RecallChannels.DEFAULT_DISABLED] 就要加一**，
+         * 否则改动对已经动过开关的用户无效（原因见 [migrateChannelDefaults]）。
+         */
+        private const val CHANNEL_DEFAULTS_VERSION = 1
+
         private const val FILE = "myfeed_interests"
         private const val KEY_INTERESTS = "interest_list"
         private const val KEY_DISABLED_CHANNELS = "recall_channels_disabled"
+        private const val KEY_CHANNEL_DEFAULTS_VERSION = "recall_channel_defaults_version"
         private const val KEY_RSSHUB = "rsshub_base_url"
         private const val KEY_SEMANTIC = "semantic_enabled"
         private const val KEY_SHOW_REASON = "show_recommend_reason"

@@ -3,6 +3,7 @@ package com.example.feedreader.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -42,21 +43,59 @@ class FeedRepository(
         FetchOutcome(articles, failures)
     }
 
-    private fun fetchOne(source: FeedSource): List<Article> = client.newCall(requestFor(source)).execute().use { response ->
-        ensureOk(response)
+    /**
+     * 探测一个地址能不能当订阅源用。给「添加订阅源」做即时校验。
+     *
+     * 校验逻辑和正式抓取完全共用（[fetchText]），所以「探测通过」的含义是
+     * 「以后每次刷新也能拉到」，而不只是「这个地址现在打得开」—— 后者太好满足了，
+     * 一个网页也能返回 200。
+     *
+     * @param url 用户原样粘进来的地址，内部自己 trim。
+     */
+    suspend fun probe(url: String): ProbeResult = withContext(Dispatchers.IO) {
+        // 探测只需要地址，其余字段随便给 —— 解析结果不落库，只用来数条目数
+        val stub = FeedSource(
+            id = "probe",
+            name = "probe",
+            url = url.trim(),
+            category = "",
+        )
+        runCatching {
+            val text = fetchText(stub)
+            val articles = parser.parse(text, stub)
+            if (articles.isEmpty()) throw FeedException("地址能打开，但里面一条内容都没有")
 
-        val body = response.body ?: throw FeedException("响应为空")
-        if (body.contentLength() > MAX_BYTES) throw FeedException("内容过大")
-
-        val bytes = body.bytes()
-        if (bytes.isEmpty()) throw FeedException("响应为空")
-        if (looksLikeHtml(bytes)) throw FeedException("该地址返回的是网页，不是订阅源")
-
-        val text = decode(bytes, body.contentType()?.charset())
-        if (!text.contains('<')) throw FeedException("内容不是有效的 XML")
-
-        return parser.parse(text, source)
+            ProbeResult.Ok(
+                title = parser.feedTitle(text).orEmpty(),
+                itemCount = articles.size,
+            )
+        }.getOrElse { ProbeResult.Failed(describe(it)) }
     }
+
+    private fun fetchOne(source: FeedSource): List<Article> =
+        parser.parse(fetchText(source), source)
+
+    /**
+     * 拉回正文并做完所有「这到底是不是个 feed」的检查，返回解码后的 XML 文本。
+     *
+     * 拆出来是为了让 [probe] 和 [fetchOne] 共用同一套判据 —— 校验逻辑散成两份的话，
+     * 迟早会出现「探测说没问题、刷新时又拉不动」这种最难查的不一致。
+     */
+    private fun fetchText(source: FeedSource): String =
+        client.newCall(requestFor(source)).execute().use { response ->
+            ensureOk(response)
+
+            val body = response.body ?: throw FeedException("响应为空")
+            if (body.contentLength() > MAX_BYTES) throw FeedException("内容过大")
+
+            val bytes = body.bytes()
+            if (bytes.isEmpty()) throw FeedException("响应为空")
+            if (looksLikeHtml(bytes)) throw FeedException("该地址返回的是网页，不是订阅源")
+
+            val text = decode(bytes, body.contentType()?.charset())
+            if (!text.contains('<')) throw FeedException("内容不是有效的 XML")
+            text
+        }
 
     private fun requestFor(source: FeedSource): Request = Request.Builder()
         .url(source.url)

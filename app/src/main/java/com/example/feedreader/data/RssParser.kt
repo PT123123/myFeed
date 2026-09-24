@@ -73,6 +73,48 @@ class RssParser(
         return articles
     }
 
+    /**
+     * 取频道的标题（RSS 的 `<channel><title>` / Atom 的 `<feed><title>`）。
+     *
+     * **只在第一个 `<item>` / `<entry>` 之前找**：条目自己也带 `<title>`，
+     * 一路扫到底会拿到第一篇文章的标题 —— 那个错误很隐蔽，看上去还挺像回事。
+     *
+     * 没有频道标题时返回 null（有些 feed 确实不写），调用方自己兜底。
+     */
+    fun feedTitle(xml: String): String? {
+        val parser = createParser()
+        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+        parser.setInput(StringReader(xml))
+
+        val buffer = StringBuilder()
+        var collecting = false
+        var event = parser.eventType
+
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.START_TAG -> {
+                    val tag = parser.name.lowercase(Locale.US)
+                    // 进正文了，说明上面压根没有频道标题
+                    if (tag == TAG_ITEM || tag == TAG_ENTRY) return null
+                    if (tag == F_TITLE) {
+                        collecting = true
+                        buffer.setLength(0)
+                    }
+                }
+
+                XmlPullParser.TEXT, XmlPullParser.CDSECT -> if (collecting) {
+                    buffer.append(parser.text.orEmpty())
+                }
+
+                XmlPullParser.END_TAG -> if (collecting && parser.name.lowercase(Locale.US) == F_TITLE) {
+                    return TextCleaner.plain(buffer.toString(), MAX_TITLE).ifEmpty { null }
+                }
+            }
+            event = parser.next()
+        }
+        return null
+    }
+
     /** 逐条累积 item 的字段值。 */
     private class ItemBuilder {
 

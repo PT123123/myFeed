@@ -1,6 +1,7 @@
 package com.example.feedreader.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -72,6 +73,54 @@ class FeedSourcesTest {
             listOf(FeedSources.ALL) + FeedSources.DEFAULT.map { it.category }.distinct(),
             categories,
         )
+    }
+
+    // ------------------------------------------------------------------ 默认开关
+
+    /**
+     * 钉住这次的产品决定：那 8 个靠流量和软文变现的媒体号默认不拉。
+     *
+     * 写成显式清单而不是「数量 ≥ 8」，是因为这里真正要防的是**误改** —— 某次重构
+     * 不小心把 `defaultEnabled = false` 弄丢了，或者新增源时抄错了行。数量断言挡不住
+     * 这两种，清单可以。
+     */
+    @Test
+    fun `默认关闭的是那批流量号`() {
+        assertEquals(
+            setOf("ifanr", "qbitai", "juejin", "sspai", "gcores", "zhihuhot", "zhihudaily", "bilihot"),
+            FeedSources.defaultDisabledIds,
+        )
+    }
+
+    @Test
+    fun `默认关闭的集合与源上的标记一致`() {
+        assertEquals(
+            FeedSources.DEFAULT.filterNot { it.defaultEnabled }.map { it.id }.toSet(),
+            FeedSources.defaultDisabledIds,
+        )
+        FeedSources.DEFAULT.forEach { source ->
+            assertEquals(
+                "${source.id} 的 defaultEnabled 和 defaultDisabledIds 对不上",
+                source.id !in FeedSources.defaultDisabledIds,
+                source.defaultEnabled,
+            )
+        }
+    }
+
+    /** 是「默认不拉」而不是「删掉」—— 删掉就再也没法从界面上把它加回来了。 */
+    @Test
+    fun `默认关闭的源仍在列表里`() {
+        val ids = FeedSources.DEFAULT.map { it.id }.toSet()
+        FeedSources.defaultDisabledIds.forEach {
+            assertTrue("$it 不在内置列表里", it in ids)
+        }
+    }
+
+    @Test
+    fun `不传参数的源是内置且默认启用`() {
+        val source = FeedSource("x", "X", "https://x.example/feed", "科技")
+        assertFalse("不加参数时是内置源，界面上删不掉", source.custom)
+        assertTrue("不加参数时默认启用", source.defaultEnabled)
     }
 }
 
