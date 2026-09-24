@@ -17,6 +17,11 @@ data class FeedUiState(
     val lastUpdated: Long = 0L,
     /** 设置里把所有源都关了：不是错误，给引导就行。 */
     val noSourcesEnabled: Boolean = false,
+    /**
+     * 当前列表是先从磁盘缓存铺出来的，网络结果还没回来。
+     * 顶栏据此把时间标成「缓存内容」。
+     */
+    val showingCache: Boolean = false,
 ) {
     val hasContent: Boolean get() = articles.isNotEmpty()
 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -71,6 +73,7 @@ import com.example.feedreader.data.Article
 import com.example.feedreader.data.DateParser
 import com.example.feedreader.data.FeedFailure
 import com.example.feedreader.data.FeedSources
+import com.example.feedreader.data.SearchEngine
 import com.example.feedreader.ui.FeedUiState
 import com.example.feedreader.ui.FeedViewModel
 import com.example.feedreader.ui.ReaderScreen
@@ -87,6 +90,10 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     val sources by viewModel.enabledSources.collectAsState()
     val useInAppBrowser by viewModel.useInAppBrowser.collectAsState()
+    val cacheStats by viewModel.cacheStats.collectAsState()
+    val retentionDays by viewModel.retentionDays.collectAsState()
+    val cacheMaxMb by viewModel.cacheMaxMb.collectAsState()
+    val searchEngine by viewModel.searchEngine.collectAsState()
     val context = LocalContext.current
 
     var query by rememberSaveable { mutableStateOf("") }
@@ -114,6 +121,12 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
         if (useInAppBrowser) opened = article else openExternal(context, article.link)
     }
 
+    // 网页搜索走同一条路：内置浏览器开着就在站内看结果，否则交给系统浏览器
+    val openWebSearch: (String) -> Unit = { raw ->
+        val keyword = raw.trim()
+        if (keyword.isNotEmpty()) openArticle(searchArticle(searchEngine, keyword))
+    }
+
     opened?.let { article ->
         ReaderScreen(
             article = article,
@@ -130,9 +143,18 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
             enabledIds = sources.map { it.id }.toSet(),
             useInAppBrowser = useInAppBrowser,
             version = BuildConfig.VERSION_NAME,
+            cacheStats = cacheStats,
+            retentionDays = retentionDays,
+            cacheMaxMb = cacheMaxMb,
+            searchEngine = searchEngine,
             onToggleSource = viewModel::setSourceEnabled,
             onToggleInAppBrowser = viewModel::setUseInAppBrowser,
-            onClearCache = { clearWebViewCache(context) },
+            onSetRetentionDays = viewModel::setCacheRetentionDays,
+            onSetCacheMaxMb = viewModel::setCacheMaxMb,
+            onSetSearchEngine = viewModel::setSearchEngine,
+            onPruneCache = { viewModel.pruneNow() },
+            onClearFeedCache = { viewModel.clearCacheNow() },
+            onClearWebCache = { clearWebViewCache(context) },
             onBack = { settingsOpen = false },
         )
         return
@@ -249,6 +271,14 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
                     singleLine = true,
                 )
 
+                // 本地过滤是即时的；搜不到或想搜全网时，走这一行
+                if (query.isNotBlank()) {
+                    WebSearchRow(
+                        label = "用${searchEngine.label}搜索「${query.trim()}」",
+                        onClick = { openWebSearch(query) },
+                    )
+                }
+
                 CategoryRow(current = activeCategory, categories = categories, onSelect = { category = it })
 
                 TabRow(selectedTabIndex = tab) {
@@ -296,6 +326,33 @@ fun FeedReaderApp(viewModel: FeedViewModel = viewModel()) {
                 }
             }
         }
+    }
+}
+
+/** 点一下就用当前引擎搜网页，结果页在内置浏览器里打开。 */
+@Composable
+private fun WebSearchRow(label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -417,7 +474,7 @@ private fun EmptyPane(query: String, category: String) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "下拉即可刷新",
+            text = if (query.isEmpty()) "下拉即可刷新" else "本地没搜到，可以点上方那行去搜网页",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -574,8 +631,25 @@ private fun CardItem(
 private fun Article.byline(): String =
     if (author.equals(sourceName, ignoreCase = true)) sourceName else "$sourceName · $author"
 
-private fun FeedUiState.updatedLabel(): String =
-    if (lastUpdated > 0L) "更新于 ${DateParser.relative(lastUpdated)}" else "尚未更新"
+private fun FeedUiState.updatedLabel(): String = when {
+    lastUpdated <= 0L -> "尚未更新"
+    // 网络结果还没回来，列表是磁盘缓存铺的
+    showingCache -> "缓存内容 · ${DateParser.relative(lastUpdated)}"
+    else -> "更新于 ${DateParser.relative(lastUpdated)}"
+}
+
+/** 把一次网页搜索包装成 Article，好在内置浏览器里复用同一套阅读界面。 */
+private fun searchArticle(engine: SearchEngine, keyword: String): Article = Article(
+    id = "search:${engine.id}:$keyword",
+    title = keyword,
+    excerpt = "",
+    link = engine.urlFor(keyword),
+    author = "",
+    sourceId = "search",
+    sourceName = "${engine.label}搜索",
+    category = "搜索",
+    publishedAt = 0L,
+)
 
 private fun openExternal(context: Context, url: String) {
     if (url.isBlank()) return
