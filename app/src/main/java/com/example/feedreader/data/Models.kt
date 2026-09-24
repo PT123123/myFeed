@@ -49,6 +49,10 @@ object FeedSources {
 
     const val ALL = "全部"
 
-    /** 分类筛选用的选项，按 [DEFAULT] 里的出现顺序去重。 */
-    val CATEGORIES: List<String> = listOf(ALL) + DEFAULT.map { it.category }.distinct()
+    /**
+     * 分类筛选用的选项，按给定源集合里的出现顺序去重。
+     * 传当前启用的源进来，这样关掉某个源后对应的分类也跟着消失。
+     */
+    fun categoriesOf(sources: List<FeedSource>): List<String> =
+        listOf(ALL) + sources.map { it.category }.distinct()
 }

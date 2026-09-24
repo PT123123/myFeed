@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.feedreader"
         minSdk = 21
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     buildTypes {
@@ -37,6 +37,8 @@ android {
 
     buildFeatures {
         compose = true
+        // 设置页要显示版本号
+        buildConfig = true
     }
 }
 

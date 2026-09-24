@@ -15,6 +15,8 @@ data class FeedUiState(
     /** 全部源都失败且无内容可显示时，才进整页错误态。 */
     val error: String? = null,
     val lastUpdated: Long = 0L,
+    /** 设置里把所有源都关了：不是错误，给引导就行。 */
+    val noSourcesEnabled: Boolean = false,
 ) {
     val hasContent: Boolean get() = articles.isNotEmpty()
 }
