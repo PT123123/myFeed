@@ -34,29 +34,55 @@ class FeedSourcesTest {
     }
 
     @Test
-    fun `每个源的分类都能在筛选选项里找到`() {
-        val categories = FeedSources.categoriesOf(FeedSources.DEFAULT)
+    fun `分类选项含全部且覆盖列表里出现过的分类`() {
+        val categories = FeedSources.categoriesOf(
+            listOf(article("科技"), article("开发"), article("科技")),
+        )
         assertEquals(FeedSources.ALL, categories.first())
-        FeedSources.DEFAULT.forEach { source ->
-            assertTrue("分类 ${source.category} 未出现在筛选选项里", source.category in categories)
-        }
+        assertTrue("科技" in categories)
+        assertTrue("开发" in categories)
     }
 
     @Test
-    fun `分类选项按源的顺序去重且不含重复项`() {
-        val categories = FeedSources.categoriesOf(FeedSources.DEFAULT)
-        assertEquals(categories.size, categories.distinct().size)
-        // 顺序 = 首次出现的顺序，抽屉里分类的排列依赖这一点
+    fun `分类选项按首次出现顺序去重`() {
+        // 顺序就是列表里的顺序（= 推荐分数序），抽屉和 chips 的排列依赖这一点
+        val categories = FeedSources.categoriesOf(
+            listOf(article("开发"), article("科技"), article("开发"), article("综合")),
+        )
+        assertEquals(listOf(FeedSources.ALL, "开发", "科技", "综合"), categories)
+    }
+
+    /**
+     * 空列表是合法状态（还没加载出内容、或者过滤之后一条都不剩），
+     * 不能崩，也不能漏掉「全部」这个唯一能选的项。
+     */
+    @Test
+    fun `没有文章时只剩全部`() {
+        assertEquals(listOf(FeedSources.ALL), FeedSources.categoriesOf(emptyList()))
+    }
+
+    /** 订阅源上的分类必须非空 —— 它会原样抄进文章，成为分类 chips 的来源。 */
+    @Test
+    fun `源的分类直接决定了分类选项`() {
+        val categories = FeedSources.categoriesOf(
+            FeedSources.DEFAULT.map { article(it.category, id = it.id) },
+        )
+        // 同一分类的多个源只占一个选项
         assertEquals(
             listOf(FeedSources.ALL) + FeedSources.DEFAULT.map { it.category }.distinct(),
             categories,
         )
     }
-
-    @Test
-    fun `只看启用的源时分类跟着变少`() {
-        val onlyTech = FeedSources.DEFAULT.filter { it.category == "科技" }
-        val categories = FeedSources.categoriesOf(onlyTech)
-        assertEquals(listOf(FeedSources.ALL, "科技"), categories)
-    }
 }
+
+private fun article(category: String, id: String = category) = Article(
+    id = id,
+    title = "标题",
+    excerpt = "",
+    link = "https://example.test/$id",
+    author = "",
+    sourceId = "stub",
+    sourceName = "stub",
+    category = category,
+    publishedAt = 0L,
+)

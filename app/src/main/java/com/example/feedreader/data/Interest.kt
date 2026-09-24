@@ -30,6 +30,25 @@ object Interests {
     const val MAX_WEIGHT = 2f
     const val MAX_KEYWORD_LENGTH = 24
 
+    /**
+     * 兴趣词数量上限。
+     *
+     * 一次刷新最多只会发 [EFFECTIVE_COUNT] 个查询，多出来的词连网络请求都发不出去。
+     * 留出余量而不是卡在 [EFFECTIVE_COUNT] 是因为用户常常想临时关掉几个试试、
+     * 或者留几个备选轮换 —— 那种操作不该被迫先删词。
+     */
+    const val MAX_COUNT = 12
+
+    /**
+     * 一轮刷新真正会用上的兴趣词数量。**这是召回侧的硬上限**（`RecallService.MAX_QUERIES`
+     * 直接引用它，免得两处各写一份数字之后悄悄漂移）。
+     *
+     * 为什么是 8：请求数 = 兴趣词 × 通道数，线性增长，8 个词 × 6 路 = 48 个请求已经
+     * 偏多了。继续加大召回面不如把权重调准 —— 召回的活儿是**保下限**，
+     * 排序才是决定首页长什么样的那一步。设置页拿这个数告诉用户「哪几个词这轮排不上」。
+     */
+    const val EFFECTIVE_COUNT = 8
+
     /** 权重档位，UI 上给固定几档比拉滑块好按，也避免用户纠结 0.87 和 0.88 的区别。 */
     val WEIGHT_STEPS = listOf(0.5f, 1f, 1.5f, 2f)
 
@@ -75,6 +94,23 @@ object Interests {
         weight >= 1.5f -> "较高"
         weight >= 1f -> "普通"
         else -> "较低"
+    }
+
+    /**
+     * 校验「这个词能不能加进列表」。返回 null 表示可以，否则是直接给用户看的原因。
+     *
+     * 放在这里而不是 ViewModel 里，是为了让每一种拒绝理由都能单测 ——
+     * 这类校验的坑全在边界上：全角空格、只有标点的串、大小写不同但其实是同一个词。
+     */
+    fun addError(raw: String, existing: List<Interest>): String? {
+        val keyword = sanitize(raw)
+        return when {
+            keyword.isEmpty() -> "请输入兴趣词"
+            keyword.none { it.isLetterOrDigit() } -> "兴趣词里至少要有汉字或字母"
+            existing.size >= MAX_COUNT -> "最多 $MAX_COUNT 个兴趣词，先删掉几个再加"
+            existing.any { it.id == normalizeId(keyword) } -> "「$keyword」已经在列表里了"
+            else -> null
+        }
     }
 
     /** 关键词里的所有空白（半角/全角/制表/换行）统一成半角空格。 */

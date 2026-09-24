@@ -86,19 +86,63 @@ class RecommendEngine(
         limit: Int = Int.MAX_VALUE,
         encodeBudget: Int = DEFAULT_ENCODE_BUDGET,
     ): RecommendOutcome {
-        val active = interests.filter { it.enabled && it.keyword.isNotBlank() }
-
-        // 按权重从高到低发查询：召回额度（RecallService.MAX_QUERIES）是有限的，
-        // 应该花在用户最在意的那几个词上，而不是按列表顺序。
-        val queries = active
+        val queries = interests
+            .filter { it.enabled && it.keyword.isNotBlank() }
+            // 按权重从高到低发查询：召回额度（RecallService.MAX_QUERIES）是有限的，
+            // 应该花在用户最在意的那几个词上，而不是按列表顺序。
             .sortedByDescending { it.weight }
             .map { RecallQuery.of(it, synonyms) }
 
         val recalled = recall.recall(queries, subscribed)
+        val ranked = rank(recalled.articles, interests, encoder, pool, now, limit, encodeBudget)
 
+        return RecommendOutcome(
+            articles = ranked.articles,
+            failures = recalled.failures,
+            // 召回侧才知道的量（发出去几个词、每路拿回几条）在这里补上
+            stats = ranked.stats.copy(
+                pooled = subscribed.size,
+                recalled = recalled.articles.size - subscribed.size,
+                queriesUsed = recalled.queriesUsed,
+                queriesSkipped = recalled.queriesSkipped,
+                perChannel = recalled.perChannel,
+            ),
+        )
+    }
+
+    /**
+     * 只重排一批**已经拿到**的候选，不重新召回。
+     *
+     * 兴趣的权重和开关只影响排序，跟召回面无关 —— 重新打一轮网络
+     * （8 个词 × 6 路 = 48 个请求）换不来任何新内容，只会把「调一下权重」
+     * 变成「等半分钟」。所以设置页里改兴趣走这条路，改通道走 [recommend]。
+     *
+     * 重复调用它本身是有收益的：上一轮因为编码预算被推迟的条目，这一轮会接着
+     * 排队编码（观察 [RecommendStats.deferred] 是否在收敛）。
+     */
+    suspend fun rerank(
+        candidates: List<Article>,
+        interests: List<Interest>,
+        encoder: TextEncoder? = null,
+        pool: EncodePool? = null,
+        now: Long = System.currentTimeMillis(),
+        limit: Int = Int.MAX_VALUE,
+        encodeBudget: Int = DEFAULT_ENCODE_BUDGET,
+    ): RecommendOutcome = rank(candidates, interests, encoder, pool, now, limit, encodeBudget)
+
+    /** [recommend] 和 [rerank] 的共同下半段：取向量（带缓存）+ 排序。 */
+    private suspend fun rank(
+        candidates: List<Article>,
+        interests: List<Interest>,
+        encoder: TextEncoder?,
+        pool: EncodePool?,
+        now: Long,
+        limit: Int,
+        encodeBudget: Int,
+    ): RecommendOutcome {
         // 编码是 CPU 密集的纯计算，扔到 Default 而不是 IO —— 别和网络请求抢同一组线程
         val encoding = withContext(Dispatchers.Default) {
-            ensureVectors(recalled.articles, encoder, pool, encodeBudget)
+            ensureVectors(candidates, encoder, pool, encodeBudget)
         }
         if (encoding.changed) {
             // 落盘放 IO：这一步会写文件，和上面那堆计算分开
@@ -107,10 +151,11 @@ class RecommendEngine(
 
         val ranker = Ranker(encoder ?: NoSemanticEncoder, synonyms, weights)
         val ranked = ranker.rank(
-            interests = active,
+            // 这里传完整的 interests：Ranker 自己会滤掉关掉的，重复滤一遍没必要
+            interests = interests,
             // 传全部候选而不是「有向量的那些」：缺向量的条目照样能靠词法项参与排序，
             // 这正是模型还没就绪或个别条目编码失败时的降级路径。
-            articles = recalled.articles,
+            articles = candidates,
             articleVectors = encoding.vectors,
             now = now,
             limit = limit,
@@ -118,17 +163,11 @@ class RecommendEngine(
 
         return RecommendOutcome(
             articles = ranked,
-            failures = recalled.failures,
             stats = RecommendStats(
-                pooled = subscribed.size,
-                recalled = recalled.articles.size - subscribed.size,
-                candidates = recalled.articles.size,
+                candidates = candidates.size,
                 newlyEncoded = encoding.encoded,
                 deferred = encoding.deferred,
                 semantic = encoder != null,
-                queriesUsed = recalled.queriesUsed,
-                queriesSkipped = recalled.queriesSkipped,
-                perChannel = recalled.perChannel,
             ),
         )
     }

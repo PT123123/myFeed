@@ -88,9 +88,13 @@ object FeedSources {
     const val ALL = "全部"
 
     /**
-     * 分类筛选用的选项，按给定源集合里的出现顺序去重。
-     * 传当前启用的源进来，这样关掉某个源后对应的分类也跟着消失。
+     * 分类筛选用的选项，按给定**文章列表**里的出现顺序去重。
+     *
+     * 传当前列表里的文章进来，而不是「启用的源」：换成兴趣流之后内容来自六条
+     * 召回通道加订阅源，按源推导出来的分类根本覆盖不到 —— CSDN、V2EX、
+     * Hacker News 这些来源压根不在订阅源列表里，用户永远筛不到它们。
+     * 顺序取首次出现顺序，也就是分数序，最相关的来源排在最前面。
      */
-    fun categoriesOf(sources: List<FeedSource>): List<String> =
-        listOf(ALL) + sources.map { it.category }.distinct()
+    fun categoriesOf(articles: List<Article>): List<String> =
+        listOf(ALL) + articles.map { it.category }.distinct()
 }

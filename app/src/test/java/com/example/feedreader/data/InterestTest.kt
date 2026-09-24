@@ -63,6 +63,60 @@ class InterestsTest {
             assertTrue("权重应在范围内", it.weight in Interests.MIN_WEIGHT..Interests.MAX_WEIGHT)
         }
     }
+
+    // ------------------------------------------------------------------ 添加校验
+
+    @Test
+    fun blankKeywordIsRejected() {
+        assertNotEquals(null, Interests.addError("", emptyList()))
+        assertNotEquals(null, Interests.addError("   \t ", emptyList()))
+    }
+
+    /**
+     * 纯标点要挡住：它切不出任何词项、也编码不出有意义的向量，
+     * 加进去只会变成一个永远匹配不到东西的死兴趣。
+     */
+    @Test
+    fun punctuationOnlyKeywordIsRejected() {
+        assertNotEquals(null, Interests.addError("...", emptyList()))
+        assertNotEquals(null, Interests.addError("。。！", emptyList()))
+        // 中英混排的「C++」有字母，必须放行
+        assertEquals(null, Interests.addError("C++", emptyList()))
+    }
+
+    /** 「Rust」和「 rust 」是同一条 —— 去重按归一化后的 id，不能按原始字符串。 */
+    @Test
+    fun duplicateIsRejectedIgnoringCaseAndWhitespace() {
+        val existing = listOf(Interest("Rust"))
+        assertNotEquals(null, Interests.addError("rust", existing))
+        assertNotEquals(null, Interests.addError("  RUST  ", existing))
+        assertEquals(null, Interests.addError("Rustlang", existing))
+    }
+
+    @Test
+    fun tooManyInterestsIsRejected() {
+        val full = List(Interests.MAX_COUNT) { Interest("词$it") }
+        assertNotEquals(null, Interests.addError("再加一个", full))
+
+        // 删掉一个之后就该能加了 —— 上限是按当前条数算的，不是一次性的
+        assertEquals(null, Interests.addError("再加一个", full.drop(1)))
+    }
+
+    /** 超长关键词会被截断而不是拒绝：用户意图是清楚的，没必要让他重打。 */
+    @Test
+    fun overlongKeywordIsTruncatedNotRejected() {
+        assertEquals(null, Interests.addError("词".repeat(100), emptyList()))
+        assertEquals(
+            Interests.MAX_KEYWORD_LENGTH,
+            Interests.sanitize("词".repeat(100)).length,
+        )
+    }
+
+    @Test
+    fun validKeywordIsAccepted() {
+        assertEquals(null, Interests.addError("向量数据库", emptyList()))
+        assertEquals(null, Interests.addError("  向量数据库  ", emptyList()))
+    }
 }
 
 class InterestCodecTest {

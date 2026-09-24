@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -21,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -39,12 +43,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.feedreader.data.CacheStats
 import com.example.feedreader.data.FeedSource
 import com.example.feedreader.data.FeedSources
+import com.example.feedreader.data.Interest
+import com.example.feedreader.data.Interests
 import com.example.feedreader.data.SearchEngine
 import com.example.feedreader.data.SettingsStore
 import io.github.pt123123.semantic.ModelState
@@ -62,6 +69,7 @@ fun SettingsScreen(
     retentionDays: Int,
     cacheMaxMb: Int,
     searchEngine: SearchEngine,
+    recommend: RecommendSettings,
     semanticStatus: SemanticStatus,
     modelState: ModelState,
     modelBytes: Long,
@@ -71,12 +79,22 @@ fun SettingsScreen(
     onSetRetentionDays: (Int) -> Unit,
     onSetCacheMaxMb: (Int) -> Unit,
     onSetSearchEngine: (SearchEngine) -> Unit,
+    onAddInterest: (String) -> AddInterestResult,
+    onRemoveInterest: (String) -> Unit,
+    onToggleInterest: (String, Boolean) -> Unit,
+    onSetInterestWeight: (String, Float) -> Unit,
+    onToggleRecallChannel: (String, Boolean) -> Unit,
+    onSetRssHubUrl: (String) -> Unit,
+    onToggleSemanticEnabled: (Boolean) -> Unit,
+    onToggleShowReason: (Boolean) -> Unit,
+    onSyncRecommend: () -> Unit,
     onSyncSemantic: () -> Unit,
     onDownloadModel: () -> Unit,
     onLoadEncoder: () -> Unit,
     onDeleteModel: () -> Unit,
     onPruneCache: suspend () -> String,
     onClearFeedCache: suspend () -> String,
+    onClearVectorCache: suspend () -> String,
     onClearWebCache: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -87,15 +105,21 @@ fun SettingsScreen(
     var sizeDialog by remember { mutableStateOf(false) }
     var engineDialog by remember { mutableStateOf(false) }
     var deleteModelDialog by remember { mutableStateOf(false) }
+    var addInterestDialog by remember { mutableStateOf(false) }
+    var rssHubDialog by remember { mutableStateOf(false) }
 
-    // 进设置页时探一次磁盘：模型可能在别的地方被删掉了（清理工具、重装）
-    LaunchedEffect(Unit) { onSyncSemantic() }
+    // 进设置页时探一次磁盘：模型可能在别的地方被删掉了（清理工具、重装）；
+    // 推荐设置同理 —— 换设备恢复备份之后，内存里的快照可能已经不是磁盘上那份了
+    LaunchedEffect(Unit) {
+        onSyncSemantic()
+        onSyncRecommend()
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text("订阅源与设置") },
+                title = { Text("兴趣与设置") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -130,9 +154,10 @@ fun SettingsScreen(
             if (enabledIds.isEmpty()) {
                 item {
                     Text(
-                        text = "全部关掉了——首页会没有内容可显示。",
+                        text = "全部关掉了。这不是问题 —— 只要下面有兴趣词，首页照样有内容，" +
+                            "订阅源只是其中一个语料来源。",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
@@ -141,8 +166,79 @@ fun SettingsScreen(
             item { SectionDivider() }
             item {
                 SectionHeader(
+                    title = "兴趣",
+                    caption = "首页就是这些词的推荐流。词越具体，召回越准",
+                )
+            }
+            item {
+                ActionRow(
+                    title = "添加兴趣",
+                    subtitle = if (recommend.overflowCount > 0) {
+                        "已有 ${recommend.activeCount} 个，但一轮只发得出权重最高的 " +
+                            "${recommend.queryCount} 个查询，多出来的这几个排不上"
+                    } else {
+                        "最多 ${Interests.MAX_COUNT} 个；一轮刷新会用上权重最高的 " +
+                            "${Interests.EFFECTIVE_COUNT} 个"
+                    },
+                    icon = Icons.Filled.Add,
+                ) { addInterestDialog = true }
+            }
+            items(recommend.interests, key = { it.id }) { interest ->
+                InterestRow(
+                    interest = interest,
+                    onToggle = { onToggleInterest(interest.id, it) },
+                    onCycleWeight = { onSetInterestWeight(interest.id, nextWeight(interest.weight)) },
+                    onRemove = { onRemoveInterest(interest.id) },
+                )
+            }
+            if (recommend.interests.isEmpty()) {
+                item {
+                    Text(
+                        text = "一个兴趣都没有 —— 首页会退化成「已订阅源的时间序」。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
+
+            item { SectionDivider() }
+            item {
+                SectionHeader(
+                    title = "召回通道",
+                    caption = "决定候选从哪来。单路失败不影响其他路",
+                )
+            }
+            items(recommend.channels, key = { it.id }) { channel ->
+                ToggleRow(
+                    title = channel.name,
+                    subtitle = channel.hint,
+                    checked = channel.enabled,
+                    onCheckedChange = { onToggleRecallChannel(channel.id, it) },
+                )
+            }
+            item {
+                ChoiceRow(
+                    title = "自建 RSSHub 实例",
+                    subtitle = "公共镜像只对少数关键词路由可用，填自建地址更稳",
+                    value = recommend.rssHubBaseUrl.ifEmpty { "公共镜像" },
+                    onClick = { rssHubDialog = true },
+                )
+            }
+
+            item { SectionDivider() }
+            item {
+                SectionHeader(
                     title = "语义推荐模型",
                     caption = "让推荐理解同义表述，不只是关键词匹配",
+                )
+            }
+            item {
+                ToggleRow(
+                    title = "启用语义排序",
+                    subtitle = "关掉后退回「关键词 + 时间」排序；已下载的模型不会被删掉",
+                    checked = recommend.semanticEnabled,
+                    onCheckedChange = onToggleSemanticEnabled,
                 )
             }
             item {
@@ -165,6 +261,14 @@ fun SettingsScreen(
                     subtitle = "关掉则跳转到系统浏览器",
                     checked = useInAppBrowser,
                     onCheckedChange = onToggleInAppBrowser,
+                )
+            }
+            item {
+                ToggleRow(
+                    title = "显示推荐理由",
+                    subtitle = "在标题下面标出这篇命中了你哪个兴趣词",
+                    checked = recommend.showReason,
+                    onCheckedChange = onToggleShowReason,
                 )
             }
             item {
@@ -230,6 +334,15 @@ fun SettingsScreen(
                     subtitle = "删掉全部已下载的订阅内容，下拉刷新会重新拉",
                 ) {
                     scope.launch { snackbar.showSnackbar(onClearFeedCache()) }
+                }
+            }
+            item {
+                ActionRow(
+                    title = "清除向量缓存",
+                    subtitle = "已缓存 ${recommend.vectorStats.vectors} 篇的句向量" +
+                        "（${formatBytes(recommend.vectorStats.bytes)}）；清掉后下次刷新要重新编码",
+                ) {
+                    scope.launch { snackbar.showSnackbar(onClearVectorCache()) }
                 }
             }
 
@@ -320,6 +433,190 @@ fun SettingsScreen(
             },
         )
     }
+
+    if (addInterestDialog) {
+        AddInterestDialog(
+            onAdd = onAddInterest,
+            onAdded = { message -> scope.launch { snackbar.showSnackbar(message) } },
+            onDismiss = { addInterestDialog = false },
+        )
+    }
+
+    if (rssHubDialog) {
+        RssHubDialog(
+            current = recommend.rssHubBaseUrl,
+            onConfirm = {
+                rssHubDialog = false
+                onSetRssHubUrl(it)
+            },
+            onDismiss = { rssHubDialog = false },
+        )
+    }
+}
+
+/** 下一档权重，到顶绕回最低档。当前值不在档位上时（老数据）从最低档重新开始。 */
+private fun nextWeight(current: Float): Float {
+    val steps = Interests.WEIGHT_STEPS
+    val index = steps.indexOf(Interests.snapWeight(current))
+    return steps[(index + 1) % steps.size]
+}
+
+/**
+ * 一条兴趣：关键词、权重、启用开关、删除。
+ *
+ * 权重做成「点标签换下一档」而不是拉滑块或弹对话框：只有四档，循环点击最省事，
+ * 也不用为每一行维护一个对话框的状态。
+ */
+@Composable
+private fun InterestRow(
+    interest: Interest,
+    onToggle: (Boolean) -> Unit,
+    onCycleWeight: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onCycleWeight)
+                .padding(vertical = 6.dp),
+        ) {
+            Text(
+                text = interest.keyword,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (interest.enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = buildString {
+                    append("权重 ")
+                    append(Interests.weightLabel(interest.weight))
+                    append("（")
+                    append(trimWeight(interest.weight))
+                    append("）· 点这里换档")
+                    if (!interest.enabled) append(" · 已关闭")
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Switch(checked = interest.enabled, onCheckedChange = onToggle)
+        IconButton(onClick = onRemove) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "删除「${interest.keyword}」",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+/** 2.0 显示成 2，0.5 保持 0.5 —— 权重是档位，不该带着没意义的小数尾巴。 */
+private fun trimWeight(weight: Float): String =
+    if (weight == weight.toInt().toFloat()) weight.toInt().toString() else weight.toString()
+
+/**
+ * 添加兴趣。
+ *
+ * **校验失败不关窗**：「这个词已经在列表里了」如果只用 snackbar 闪一下，
+ * 用户会以为是自己没点中按钮。把原因留在输入框下面，一眼就知道该改什么。
+ */
+@Composable
+private fun AddInterestDialog(
+    onAdd: (String) -> AddInterestResult,
+    onAdded: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun submit() {
+        when (val result = onAdd(text)) {
+            is AddInterestResult.Added -> {
+                onAdded(result.message)
+                onDismiss()
+            }
+
+            is AddInterestResult.Rejected -> error = result.reason
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("添加兴趣") },
+        text = {
+            Column {
+                HintText("写得具体一点：「向量数据库」比「技术」有用得多。")
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                        error = null
+                    },
+                    singleLine = true,
+                    isError = error != null,
+                    placeholder = { Text("例如：向量数据库") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                )
+                error?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { submit() }) { Text("添加") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+/** 自建 RSSHub 基地址。留空 = 用内置公共镜像，所以「清空」是个合法且有意义的操作。 */
+@Composable
+private fun RssHubDialog(
+    current: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(current) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("自建 RSSHub 实例") },
+        text = {
+            Column {
+                HintText(
+                    "填 https:// 开头的基地址，例如 https://rsshub.example.com。" +
+                        "留空则用内置公共镜像。",
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    placeholder = { Text("https://rsshub.example.com") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(text.trim()) }) { Text("保存") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 @Composable
@@ -380,7 +677,12 @@ private fun ToggleRow(
 }
 
 @Composable
-private fun ActionRow(title: String, subtitle: String, onClick: () -> Unit) {
+private fun ActionRow(
+    title: String,
+    subtitle: String,
+    icon: ImageVector? = null,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -388,6 +690,14 @@ private fun ActionRow(title: String, subtitle: String, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(end = 12.dp).size(20.dp),
+            )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.typography.bodyLarge)
             Text(

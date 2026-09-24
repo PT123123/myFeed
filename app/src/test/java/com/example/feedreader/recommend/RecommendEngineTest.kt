@@ -355,4 +355,102 @@ class RecommendEngineTest {
         Vectors.l2Normalize(a)
         assertTrue(b.all { it == 0f })
     }
+
+    // ------------------------------------------------------------------ rerank
+
+    /**
+     * 这是 [RecommendEngine.rerank] 存在的全部理由：**改兴趣不能触发网络请求**。
+     * 设置页里拖一下权重就重打 48 个请求，是这一版最容易被做错的地方。
+     */
+    @Test
+    fun `rerank 不发出任何召回请求`() = runBlocking {
+        val spy = SpyChannel()
+        val engine = engineWith(listOf(spy))
+        val candidates = listOf(article("a1", "大模型推理"), article("a2", "Rust 所有权"))
+
+        // 先跑一次完整推荐，把候选池建出来
+        engine.recommend(listOf(Interest("大模型")), encoder = TopicEncoder(), now = NOW)
+        val keywordCountAfterRecommend = spy.keywords.size
+
+        val outcome = engine.rerank(
+            candidates = candidates,
+            interests = listOf(Interest("大模型")),
+            encoder = TopicEncoder(),
+            now = NOW,
+        )
+
+        assertEquals(
+            "rerank 不该再发查询",
+            keywordCountAfterRecommend,
+            spy.keywords.size,
+        )
+        assertEquals(candidates.size, outcome.stats.candidates)
+        assertTrue("没有召回就不该有失败项", outcome.failures.isEmpty())
+    }
+
+    /** 候选不变、只换兴趣，排序结果必须跟着变 —— 否则「权重调整」是个假的开关。 */
+    @Test
+    fun `rerank 按新的兴趣重排`() = runBlocking {
+        val engine = engineWith(listOf(SpyChannel()))
+        val candidates = listOf(
+            article("rust", "Rust 异步运行时的调度实现"),
+            article("ai", "大模型推理成本再降一半"),
+        )
+
+        val byRust = engine.rerank(candidates, listOf(Interest("Rust")), TopicEncoder(), now = NOW)
+        val byAi = engine.rerank(candidates, listOf(Interest("大模型")), TopicEncoder(), now = NOW)
+
+        assertEquals("rust", byRust.articles.first().article.id)
+        assertEquals("Rust", byRust.articles.first().topInterest)
+        assertEquals("ai", byAi.articles.first().article.id)
+    }
+
+    /**
+     * 被编码预算推迟的条目，下一轮 rerank 要接着排队编码。
+     * 否则那些条目会永远只有词法分，在兴趣流里天然吃亏。
+     */
+    @Test
+    fun `rerank 接着编码上一轮被预算推迟的条目`() = runBlocking {
+        val encoder = TopicEncoder()
+        val store = VectorStore(temp.root)
+        val engine = engineWith(listOf(SpyChannel()), store)
+        val candidates = (1..5).map { article("a$it", "大模型相关第 $it 篇") }
+
+        val first = engine.rerank(
+            candidates,
+            listOf(Interest("大模型")),
+            encoder,
+            now = NOW,
+            encodeBudget = 2,
+        )
+        assertEquals("预算卡住只编码 2 条", 2, first.stats.newlyEncoded)
+        assertEquals("其余 3 条被推迟", 3, first.stats.deferred)
+
+        val second = engine.rerank(
+            candidates,
+            listOf(Interest("大模型")),
+            encoder,
+            now = NOW,
+            encodeBudget = 5,
+        )
+        assertEquals("这一轮把剩下的补上", 3, second.stats.newlyEncoded)
+        assertEquals(0, second.stats.deferred)
+        // 向量按文章所在的 sourceId 落盘；article() 的默认来源是 "stub"
+        assertEquals(5, store.read("stub").size)
+    }
+
+    /** 关掉全部兴趣时，rerank 照样要给一份按时间排的结果，不能返回空首页。 */
+    @Test
+    fun `rerank 在没有兴趣时退化成时间序`() = runBlocking {
+        val engine = engineWith(listOf(SpyChannel()))
+        val candidates = listOf(
+            article("old", "旧闻", ageDays = 30),
+            article("new", "新闻", ageDays = 0),
+        )
+
+        val outcome = engine.rerank(candidates, emptyList(), TopicEncoder(), now = NOW)
+
+        assertEquals(listOf("new", "old"), outcome.articles.map { it.article.id })
+        assertTrue(outcome.articles.all { it.topInterest.isEmpty() })
+    }
 }

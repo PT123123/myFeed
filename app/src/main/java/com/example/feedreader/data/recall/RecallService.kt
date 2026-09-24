@@ -2,6 +2,7 @@ package com.example.feedreader.data.recall
 
 import com.example.feedreader.data.Article
 import com.example.feedreader.data.FeedFailure
+import com.example.feedreader.data.Interests
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -145,7 +146,10 @@ class RecallService(
          * 请求数是「兴趣词数 × 通道数」，线性增长：8 个词 × 6 路 = 48 个请求。
          * 继续加大召回面不如把权重调准 —— 召回的活儿是**保下限**，
          * 排序才是决定首页长什么样的那一步。
+         *
+         * 取值直接引用 [Interests.EFFECTIVE_COUNT]：设置页要拿这个数字告诉用户
+         * 「哪几个兴趣词这轮排不上」，两处各写一份迟早会漂移。
          */
-        const val MAX_QUERIES = 8
+        val MAX_QUERIES: Int = Interests.EFFECTIVE_COUNT
     }
 }
