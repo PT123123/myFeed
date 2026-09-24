@@ -3,7 +3,10 @@
 /local.properties
 /.idea
 .DS_Store
+.kotlin/
+build/
 /build
+/app/build
 /captures
 .externalNativeBuild
 .cxx

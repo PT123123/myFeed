@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RSS 前景。
+     自适应图标的规定：108x108dp 图层里，只有以中心为圆心、直径 66dp 的圆内
+     内容保证不会被任何形状的遮罩裁掉。下面这组坐标把图形外接圆半径控制在
+     31.3dp（< 33dp），留了 1.7dp 余量。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 内圈弧 -->
+    <path
+        android:pathData="M36.68,52.08 A19.24,19.24 0 0 1 55.92,71.32"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6.29" />
+
+    <!-- 外圈弧 -->
+    <path
+        android:pathData="M36.68,35.06 A36.26,36.26 0 0 1 72.94,71.32"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6.29" />
+
+    <!-- 圆点 -->
+    <path
+        android:pathData="M36.68,71.32 m-4.81,0 a4.81,4.81 0 1,1 9.62,0 a4.81,4.81 0 1,1 -9.62,0"
+        android:fillColor="#FFFFFF" />
+</vector>
