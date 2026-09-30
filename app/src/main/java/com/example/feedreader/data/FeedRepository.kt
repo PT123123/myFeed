@@ -18,7 +18,8 @@ import java.util.concurrent.TimeUnit
 class FeedException(message: String) : IOException(message)
 
 class FeedRepository(
-    private val client: OkHttpClient = defaultClient(),
+    /** 命令口（[RelayCommandClient]）共用这一份连接池：同一台 PC，没必要再开一套。 */
+    val client: OkHttpClient = defaultClient(),
     private val parser: RssParser = RssParser(),
 ) {
 
@@ -31,16 +32,17 @@ class FeedRepository(
         }
 
         val articles = ArrayList<Article>()
-        val failures = ArrayList<FeedFailure>()
+        // (源名, 地址, 原因)：先攒着，最后按「同一台主机 + 同一种原因」收成几行
+        val rows = ArrayList<Triple<String, String, String>>(sources.size)
 
         for (task in tasks) {
             val (source, result) = task.await()
             result.onSuccess { articles += it }
-                .onFailure { failures += FeedFailure(source.name, describe(it)) }
+                .onFailure { rows += Triple(source.name, source.url, describe(it)) }
         }
 
         articles.sortByDescending { it.publishedAt }
-        FetchOutcome(articles, failures)
+        FetchOutcome(articles, collapseFailures(rows))
     }
 
     /**
@@ -131,23 +133,58 @@ class FeedRepository(
         return head.startsWith("<!doctype html") || head.startsWith("<html")
     }
 
-    private fun describe(error: Throwable): String = when (error) {
-        is FeedException -> error.message ?: "拉取失败"
-        is UnknownHostException -> "域名解析失败"
-        is SocketTimeoutException -> "连接超时"
-        is XmlPullParserException -> "XML 解析失败"
-        is IOException -> error.message ?: "网络错误"
-        else -> error.message ?: error.javaClass.simpleName
-    }
-
     companion object {
         private const val MAX_BYTES = 5L * 1024 * 1024
+
+        /**
+         * 一条异常对用户怎么说。
+         *
+         * 放在 companion 里是因为 `internal` 的那句「连不上是哪一种」不止这里要用：
+         * 命令口 [RelayCommandClient] 也要拿同样的说法去喂 `RelayGuidance.issueFromFetchMessage`，
+         * 两边措辞一旦分叉，电脑端对症提示就会在某一条路上悄悄失灵。
+         */
+        internal fun describe(error: Throwable): String = when (error) {
+            is FeedException -> error.message ?: "拉取失败"
+            is UnknownHostException -> "域名解析失败"
+            is SocketTimeoutException -> "连接超时"
+            is XmlPullParserException -> "XML 解析失败"
+            is IOException -> error.message ?: "网络错误"
+            else -> error.message ?: error.javaClass.simpleName
+        }
 
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/124.0 Mobile Safari/537.36 FeedReader/1.0"
 
         private val ENCODING = Regex("""encoding\s*=\s*["']([\w.:-]+)["']""", RegexOption.IGNORE_CASE)
+
+        /**
+         * 同一台主机、同一种失败原因的源收成一行。
+         *
+         * 21 条 relay 源共用一台 PC —— 它一关机就是 21 行「连接超时」，把真正该看到的
+         * 「那台机器不在线」埋进刷屏里；没开 VPN 时国外那批源也是同样的形状。
+         *
+         * 只按**原因**合并不行：知乎本机和 openai 都超时，那是两件不相干的事，合成一行
+         * 就再也分不出该去开哪一头。所以键里带上主机。
+         */
+        internal fun collapseFailures(rows: List<Triple<String, String, String>>): List<FeedFailure> {
+            if (rows.isEmpty()) return emptyList()
+
+            val groups = LinkedHashMap<Pair<String, String>, MutableList<String>>()
+            for ((name, url, message) in rows) {
+                groups.getOrPut(RelayRules.authorityOf(url) to message) { ArrayList() } += name
+            }
+            return groups.map { (key, names) ->
+                val (host, message) = key
+                FeedFailure(
+                    source = if (names.size == 1) names.single()
+                    else "${names.first()} 等 ${names.size} 个源（$host）",
+                    message = message,
+                    // 主机随失败一起带出去：界面要能认出「这批失败就是 relay 那台 PC」
+                    host = host,
+                )
+            }
+        }
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)

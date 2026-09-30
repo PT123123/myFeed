@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 扫一扫只要相机，且 required="false"：没有后置摄像头的设备（电视盒子、
+         模拟器）照样能装，扫不了码还有手填 PC 地址那条路。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -14,10 +20,20 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.FeedReader">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- 扫码深链：myfeed://relay-sync?base=… 与 myfeed://subscribe?url=…
+                 host 不在这里枚举，交给 DeepLink.parse 判定 —— 认不出来就当没这回事，
+                 比在 manifest 里堆一堆前缀好维护。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="myfeed" />
             </intent-filter>
         </activity>
     </application>

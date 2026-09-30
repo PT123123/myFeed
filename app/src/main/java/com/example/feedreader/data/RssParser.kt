@@ -170,6 +170,7 @@ class RssParser(
                 id = "${source.id}:$identity",
                 title = title,
                 excerpt = TextCleaner.plain(value(F_BODY), MAX_EXCERPT),
+                body = TextCleaner.body(value(F_BODY), MAX_BODY),
                 link = link,
                 author = TextCleaner.plain(value(F_AUTHOR), MAX_AUTHOR).ifEmpty { source.name },
                 sourceId = source.id,
@@ -186,6 +187,12 @@ class RssParser(
 
         private const val MAX_TITLE = 200
         private const val MAX_EXCERPT = 280
+
+        /**
+         * 正文上限。知乎回答绝大多数在两千字以内，6000 够装下整篇又不会失控：
+         * 每条源最多 [MAX_ITEMS] 条，21 条 relay 源全存满也只有 21×30×6000 字符的量级。
+         */
+        private const val MAX_BODY = 6_000
         private const val MAX_AUTHOR = 48
 
         private const val TAG_ITEM = "item"

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  夜里这份主题存在的理由不只是「看着暗」：
+
+  1. WebView 的 `prefers-color-scheme` 跟的是 App 声明的主题资源，不是系统开关。
+     以前只有 Light 一份，于是系统夜里真机阅读页仍然按亮色渲染（见 web-reader-dark-mode.md）。
+  2. 窗口底色决定首帧与抽屉滑动时露出来的那块 —— 亮色窗口底在暗色界面里就是一闪白。
+  3. `forceDarkAllowed=false`：我们自己就是暗的，别让 ROM 的强制反相再盖一层
+     （小米那套「增强深色」会对没有夜主题的 App 反相，正好把已暗的界面翻成别的颜色）。
+-->
+<resources>
+    <style name="Theme.FeedReader" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF121212</item>
+        <item name="android:colorBackground">#FF121212</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>

@@ -88,7 +88,7 @@ class HackerNewsChannelTest {
     fun `没有外链时退回讨论页`() {
         val body = """
             {"hits":[{"objectID":"42","title":"Ask HN: 你们怎么做端侧推理","url":null,
-            "author":"ted","created_at_i":1700000000,"points":12,"num_comments":3}]}
+            "author":"demo-user","created_at_i":1700000000,"points":12,"num_comments":3}]}
         """.trimIndent()
 
         val article = channel.parse(body).single()
@@ -548,6 +548,50 @@ class RecallServiceTest {
         assertEquals(1, outcome.articles.size)
         // 订阅那份先出现，保留它的来源信息
         assertEquals("订阅分类", outcome.articles.single().category)
+    }
+
+    /**
+     * 链接不同、id 相同的两条也只能留一条。
+     *
+     * 光按链接去重放不出这一对，而首页拿 `article.id` 当 LazyColumn 的 key —— 列表里
+     * 真出现重复 id，界面不是画歪而是整页崩（设置页今天就崩在这上面）。坏 feed 确实会
+     * 产出「guid 复用、link 各不同」的条目，所以这条不是假想敌。
+     */
+    @Test
+    fun `同 id 不同链接也只留一条`() = runBlocking {
+        val service = RecallService(
+            channels = listOf(
+                FakeChannel("a") {
+                    listOf(
+                        articleOf("dup", "https://example.test/one"),
+                        articleOf("dup", "https://example.test/two"),
+                    )
+                },
+            ),
+            http = FakeHttpGet(),
+        )
+
+        val ids = service.recall(queries("x")).articles.map { it.id }
+
+        assertEquals("id 必须唯一，否则 LazyColumn 直接崩", listOf("dup"), ids)
+    }
+
+    /** 对照：链接和 id 都不一样时，两条都该活着 —— 上面那条不许变成「只留一条」。 */
+    @Test
+    fun `不同 id 不同链接都保留`() = runBlocking {
+        val service = RecallService(
+            channels = listOf(
+                FakeChannel("a") {
+                    listOf(
+                        articleOf("one", "https://example.test/one"),
+                        articleOf("two", "https://example.test/two"),
+                    )
+                },
+            ),
+            http = FakeHttpGet(),
+        )
+
+        assertEquals(2, service.recall(queries("x")).articles.size)
     }
 
     @Test

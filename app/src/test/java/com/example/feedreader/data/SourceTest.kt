@@ -155,6 +155,47 @@ class SourceRulesTest {
         assertNull(SourceRules.addError("https://new.example/feed", FeedSources.DEFAULT))
     }
 
+    /**
+     * relay 那批源在首页要按「电脑端采集」筛得到。
+     *
+     * 之所以是「读出来时改」而不是「写进去时就是对的」：1.4.7 之前同步进来的 21 条在偏好
+     * 文件里分类还写着「自建」，只改新链路等于老用户要重新同步一次才看得见 —— 而他恰恰
+     * 是已经找不到内容的那个人。
+     */
+    @Test
+    fun `没配过分类的 relay 源归电脑端采集`() {
+        val base = "http://192.168.1.20:8099"
+
+        assertEquals(
+            SourceRules.RELAY_CATEGORY,
+            SourceRules.categoryFor(SourceRules.FALLBACK_CATEGORY, "$base/zhihu-a.xml", base),
+        )
+        // 换过 IP 之后地址会跟着同步改掉，判据是主机而不是文件名
+        assertEquals(
+            SourceRules.RELAY_CATEGORY,
+            SourceRules.categoryFor(SourceRules.FALLBACK_CATEGORY, "$base/zhihu-a.xml", "http://192.168.1.20:8099/"),
+        )
+    }
+
+    /** 三条「不该动」的情况：别的机器、用户自己写过的分类、还没配过地址。 */
+    @Test
+    fun `categoryFor 只兜那个默认值`() {
+        val base = "http://192.168.1.20:8099"
+
+        assertEquals(
+            SourceRules.FALLBACK_CATEGORY,
+            SourceRules.categoryFor(SourceRules.FALLBACK_CATEGORY, "https://a.example/feed", base),
+        )
+        assertEquals(
+            "科技",
+            SourceRules.categoryFor("科技", "$base/zhihu-a.xml", base),
+        )
+        assertEquals(
+            SourceRules.FALLBACK_CATEGORY,
+            SourceRules.categoryFor(SourceRules.FALLBACK_CATEGORY, "$base/zhihu-a.xml", ""),
+        )
+    }
+
     private fun custom(url: String) = FeedSource(
         id = SourceRules.customId(url),
         name = "自定义",

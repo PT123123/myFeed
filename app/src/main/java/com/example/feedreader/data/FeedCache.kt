@@ -192,7 +192,14 @@ class FeedCache(private val dir: File) {
             FeedCache(File(context.filesDir, DIR_NAME))
 
         private const val MAGIC = 0x4D46_4348       // "MFCH"
-        private const val VERSION = 1
+        /**
+         * 2 = 每篇文章多带一个 `body`（源里的全文）。
+         *
+         * 加字段就是一次格式变更，老文件读不出 body 也**不该**硬兼容：读到一半串了位，
+         * 症状是若干篇文章的 link/author 变成乱码，比缓存整体失效难查得多。版本对不上
+         * 就当没缓存，下次刷新自然写回新版。
+         */
+        private const val VERSION = 2
         private const val SUFFIX = ".feed"
         private const val MAX_ARTICLES = 500
         private const val MAX_FILE = 32L * 1024 * 1024
@@ -204,13 +211,13 @@ class FeedCache(private val dir: File) {
 
 // —— 二进制字段读写。字符串按「长度 + UTF-8 字节」写，避开 writeUTF 的 64KB 上限 ——
 
-private fun DataOutputStream.writeStr(value: String) {
+internal fun DataOutputStream.writeStr(value: String) {
     val bytes = value.toByteArray(Charsets.UTF_8)
     writeInt(bytes.size)
     write(bytes)
 }
 
-private fun DataInputStream.readStr(): String {
+internal fun DataInputStream.readStr(): String {
     val size = readInt()
     if (size < 0 || size > MAX_FIELD_BYTES) throw IOException("字段长度异常：$size")
     val bytes = ByteArray(size)
@@ -222,6 +229,7 @@ private fun DataOutputStream.writeArticle(article: Article) {
     writeStr(article.id)
     writeStr(article.title)
     writeStr(article.excerpt)
+    writeStr(article.body)
     writeStr(article.link)
     writeStr(article.author)
     writeStr(article.sourceId)
@@ -235,6 +243,7 @@ private fun DataInputStream.readArticle(): Article = Article(
     id = readStr(),
     title = readStr(),
     excerpt = readStr(),
+    body = readStr(),
     link = readStr(),
     author = readStr(),
     sourceId = readStr(),

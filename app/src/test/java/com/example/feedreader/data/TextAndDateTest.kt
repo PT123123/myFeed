@@ -46,6 +46,50 @@ class TextCleanerTest {
         assertTrue(cleaned.endsWith("…"))
     }
 
+    /**
+     * 全文必须分段。
+     *
+     * [TextCleaner.plain] 把换行全抹平是给卡片那一行用的；阅读页照那份渲染，两千字就是
+     * 一坨。harvest 采回来的知乎回答正是靠 `<p>` 分段才有可读性。
+     */
+    @Test
+    fun `body 把块级边界还原成段落`() {
+        assertEquals(
+            "第一段\n\n第二段\n\n第三段",
+            TextCleaner.body("<p>第一段</p><p>第二段</p><p>第三段</p>"),
+        )
+        assertEquals("上\n\n下", TextCleaner.body("上<br>下"))
+        assertEquals("外\n\n内", TextCleaner.body("<div>外</div><section>内</section>"))
+    }
+
+    /** 段内的多余空白塌成一个空格；换行只出现在标签之间，所以它天然就是分段。 */
+    @Test
+    fun `body 段内压空白但段间留一个空行`() {
+        assertEquals("粗体 正文\n\n第二段", TextCleaner.body("<p>粗体   正文</p><p>第二段</p>"))
+        // 美化输出的 feed 会在标签之间塞换行和缩进，它们不该多长出空段
+        assertEquals("一\n\n二", TextCleaner.body("<p>一</p>\n   <p>二</p>"))
+    }
+
+    @Test
+    fun `body 和 plain 一样先剥标签再解实体`() {
+        assertEquals("<b>", TextCleaner.body("&lt;b&gt;"))
+        assertEquals("A & B", TextCleaner.body("<p>A &amp; B</p>"))
+        // 转义过的 <br> 是字面量，不该被当成换段
+        assertEquals("a<br>b", TextCleaner.body("a&lt;br&gt;b"))
+    }
+
+    @Test
+    fun `body 的 script 整块丢弃`() {
+        assertEquals("正文", TextCleaner.body("<div>正文</div><script>var a = 1 < 2;</script>"))
+    }
+
+    @Test
+    fun `body 超长照样有上限`() {
+        val long = TextCleaner.body("<p>${"字".repeat(7_000)}</p>", maxLength = 6_000)
+        assertEquals(6_001, long.length) // 6000 个字 + 省略号
+        assertTrue(long.endsWith("…"))
+    }
+
     @Test
     fun `空输入返回空串`() {
         assertEquals("", TextCleaner.plain(null))

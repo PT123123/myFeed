@@ -53,6 +53,52 @@ class FeedCacheTest {
         assertNull(cache().read("nope"))
     }
 
+    /**
+     * 正文要能过磁盘。
+     *
+     * 离线铺出来的那份列表和联网那轮读到的必须是同一篇正文：阅读页拿的是 `body`，
+     * 缓存把它丢了，症状是「下拉刷新后能读全文，冷启动后只剩摘要」—— 一条只在重启
+     * 后出现的缺陷最难想起来去查缓存格式。
+     */
+    @Test
+    fun `缓存往返保留正文`() {
+        val cache = cache()
+        val list = listOf(
+            article("a").copy(body = "第一段\n\n第二段\n\n第三段"),
+            article("b").copy(body = ""),
+        )
+        cache.write("hn", list)
+
+        assertEquals(list, cache.read("hn")!!.articles)
+        assertEquals("第一段\n\n第二段\n\n第三段", cache.read("hn")!!.articles.first().body)
+    }
+
+    /**
+     * 上一版格式（没有 `body` 字段）的文件必须整体作废，而且**被删掉**。
+     *
+     * 结构完全合法的 v1 文件最容易出事：字段错位读出来不会抛，只会把 link 当 author、
+     * 把 publishedAt 当长度 —— 症状是满屏乱码文章。光返回 null 还不够，清理策略看不见
+     * 读不出头部信息的文件，它会永远占着磁盘。
+     */
+    @Test
+    fun `上一版缓存文件作废并被删掉`() {
+        val cache = cache()
+        val file = File(tmp.root, "hn.feed")
+        java.io.DataOutputStream(file.outputStream()).use { out ->
+            out.writeInt(0x4D464348) // "MFCH"，MAGIC 是私有常量，这里按字面钉住
+            out.writeInt(1) // 旧版本号
+            val id = "hn".toByteArray(Charsets.UTF_8)
+            out.writeInt(id.size)
+            out.write(id) // sourceId
+            out.writeLong(1_700_000_000_000L) // fetchedAt
+            out.writeInt(0) // 0 条 —— 结构合法，专门用来骗过宽松的实现
+            out.flush()
+        }
+
+        assertNull(cache.read("hn"))
+        assertTrue("旧版本文件该被清掉，不该留在磁盘上", !file.exists())
+    }
+
     @Test
     fun `空结果不会覆盖已有缓存`() {
         val cache = cache()

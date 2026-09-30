@@ -124,14 +124,22 @@ class RecallService(
     }
 
     /**
-     * 按链接去重，保序保留第一次出现的那条。
+     * 按链接去重，保序保留第一次出现的那条；id 另挡一道。
      *
      * 去重键取 `link`：同一篇文章在不同通道里的 id 前缀不同（`csdn:` / `v2ex:`），
      * 按 id 去重等于没去重。链接为空的退化成 id —— 那种情况本来就只可能来自同一路。
+     *
+     * id 那道是必需的，不是顺手：首页拿 `article.id` 当 LazyColumn 的 key，而 feed 里
+     * 「guid 相同、link 不同」的两条会被链接去重双双放过 —— 界面表现是一句
+     * `Key "…" was already used` 直接把首页崩掉。崩在首页比崩在设置页难查得多，
+     * 所以出去的文章列表必须自带 id 唯一这个保证。
      */
     private fun dedupe(articles: List<Article>): List<Article> {
-        val seen = HashSet<String>(articles.size * 2)
-        return articles.filter { seen.add(identityOf(it)) }
+        val seenLinks = HashSet<String>(articles.size * 2)
+        val seenIds = HashSet<String>(articles.size)
+        return articles.filter { article ->
+            seenLinks.add(identityOf(article)) && seenIds.add(article.id)
+        }
     }
 
     private fun identityOf(article: Article): String =

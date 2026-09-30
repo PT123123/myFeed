@@ -244,4 +244,57 @@ class OpmlParserTest {
     fun `body 里一条 outline 都没有时返回空列表`() {
         assertTrue(parse("""<opml version="2.0"><body></body></opml>""").isEmpty())
     }
+
+    /**
+     * relay 的清单写相对 `xmlUrl`，给基地址才立得住。
+     *
+     * 真机联调时扫整包码得到的就是这个形态，而当时解析器在准入校验那一步把 21 条
+     * 全丢了 —— 相对地址永远走不到调用方的重基逻辑。见 [RelayContractTest]。
+     */
+    @Test
+    fun `传了 baseUrl 时相对地址按它补全`() {
+        val sources = newParser().parse(
+            """
+            <opml version="2.0"><body>
+              <outline text="相对" xmlUrl="zhihu-a.xml"/>
+              <outline text="绝对" xmlUrl="https://other.example/feed.xml"/>
+            </body></opml>
+            """.trimIndent(),
+            baseUrl = "http://192.168.1.20:8099",
+        )
+
+        assertEquals(2, sources.size)
+        assertEquals("http://192.168.1.20:8099/zhihu-a.xml", sources[0].url)
+        assertEquals("非回环的绝对地址不该被动", "https://other.example/feed.xml", sources[1].url)
+    }
+
+    /** 不传 baseUrl = 文件导入的严格行为：相对地址仍然不是个可订阅的地址。 */
+    @Test
+    fun `不传 baseUrl 时相对地址照旧被丢掉`() {
+        val sources = parse(
+            """
+            <opml version="2.0"><body>
+              <outline text="相对" xmlUrl="zhihu-a.xml"/>
+              <outline text="绝对" xmlUrl="https://other.example/feed.xml"/>
+            </body></opml>
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("https://other.example/feed.xml"), sources.map { it.url })
+    }
+
+    /** 老导出把 `127.0.0.1` 写死在清单里：那也是要重基的，不是「合法的绝对地址」。 */
+    @Test
+    fun `传了 baseUrl 时回环绝对地址也被换掉`() {
+        val sources = newParser().parse(
+            """
+            <opml version="2.0"><body>
+              <outline text="老导出" xmlUrl="http://127.0.0.1:8099/zhihu-a.xml"/>
+            </body></opml>
+            """.trimIndent(),
+            baseUrl = "http://192.168.1.20:8099",
+        )
+
+        assertEquals("http://192.168.1.20:8099/zhihu-a.xml", sources.single().url)
+    }
 }

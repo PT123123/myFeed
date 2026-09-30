@@ -7,6 +7,15 @@ data class Article(
     val id: String,
     val title: String,
     val excerpt: String,
+    /**
+     * 源里带的正文（纯文本，可能为空）。
+     *
+     * 和 [excerpt] 分成两个字段，是因为用途不同：卡片只要一行，而阅读页要整篇。
+     * 拿 280 字的摘要去填阅读页，等于逼用户点回原页 —— 而知乎 / 小红书 / X 的原页在
+     * 应用内的 WebView 里根本读不到东西（要登录态）。harvest 已经把回答全文写进 RSS 了，
+     * 这份正文就是那条路的出口。见 [ReaderRouting]。
+     */
+    val body: String = "",
     val link: String,
     val author: String,
     val sourceId: String,
@@ -39,8 +48,14 @@ data class FeedSource(
     val defaultEnabled: Boolean = true,
 )
 
-/** 单个源拉取失败的原因。 */
-data class FeedFailure(val source: String, val message: String)
+/**
+ * 单个源拉取失败的原因。
+ *
+ * [host] 是这台源所在的主机（`地址里的 host:port`，召回通道那种没有地址的就是空串）。
+ * 界面上「这个源是不是 relay 那台 PC」只能靠它判断 —— 源名会随用户改名变，
+ * 而 relay 的 21 条源本来就共用一个主机。
+ */
+data class FeedFailure(val source: String, val message: String, val host: String = "")
 
 /** 一次全量拉取的结果：成功的文章 + 失败的源。 */
 data class FetchOutcome(

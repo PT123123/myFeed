@@ -37,7 +37,9 @@ fun FeedReaderTheme(
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            // 「亮色状态栏」说的是**图标**要按亮底画：只有浅色主题才该要深色图标，
+            // 夜里再设 true 就等于把深色图标压回深色状态栏上，看不见。
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
 

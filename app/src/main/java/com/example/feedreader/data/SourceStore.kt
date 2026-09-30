@@ -15,8 +15,33 @@ object SourceRules {
 
     const val MAX_NAME_LENGTH = 40
 
-    /** 用户在 OPML 里没写分类、或者手动添加时留空时的兜底分类。 */
+    /** 用户自己没写分类（手动添加留空、OPML 里没目录）时的兜底分类。 */
     const val FALLBACK_CATEGORY = "自建"
+
+    /**
+     * 从 crawlbase relay 同步进来的源归这个分类。
+     *
+     * 以前它们和手填的源共用 [FALLBACK_CATEGORY]，于是首页 chips 里只有一个含糊的「自建」。
+     * 那个词回答的是「这条源怎么来的」，而分类是给用户筛**内容**用的 —— 想只看电脑端
+     * 采回来的东西时，按「自建」筛不到答案，按「电脑端采集」才筛得到。
+     */
+    const val RELAY_CATEGORY = "电脑端采集"
+
+    /**
+     * 一条源在界面上该归哪个分类。
+     *
+     * 只把**没被用户改过分类**的 relay 主机源重命名：主机 + 端口对上已确认的那台 PC 才算
+     * （同 [RelayStatus.endpointCount] 的判据，IP 换过地址会跟着同步改掉），用户在 OPML
+     * 目录里带的分类一律尊重，不改。
+     *
+     * 存在的意义是让**老数据**也能被筛到：1.4.7 之前同步进来的那 21 条在偏好文件里写的
+     * 还是「自建」，光改新链路的重命名等于要用户重新同步一次才见效。
+     */
+    fun categoryFor(category: String, url: String, relayBase: String): String = when {
+        category != FALLBACK_CATEGORY || relayBase.isBlank() -> category
+        RelayRules.authorityOf(url) == RelayRules.authorityOf(relayBase) -> RELAY_CATEGORY
+        else -> category
+    }
 
     fun normalizeUrl(url: String): String = url.trim()
 
@@ -162,10 +187,16 @@ class SourceStore(context: Context) {
      * **空列表是合法状态**，所以用 `contains` 区分「从没写过」和「写过但是空的」——
      * 不能写成 `decode(...).ifEmpty { ... }`，那样用户删光之后重启会冒出东西来。
      * （内置源不在这个 key 里，它们在代码里。）
+     *
+     * 读出来时顺带过一遍 [SourceRules.categoryFor]：老数据里 relay 那批的分类还写着「自建」，
+     * 在这里改掉，任何一次写回（加源、同步、删源）都会把它落正 —— 不另起一次性迁移，
+     * 因为那还得再占一个版本号键，而这里读到的分类和写回去的分类天然是同一份。
      */
     var customSources: List<FeedSource>
         get() = if (prefs.contains(KEY_CUSTOM)) {
+            val base = prefs.getString(SettingsStore.KEY_RELAY_BASE, "").orEmpty()
             SourceCodec.decode(prefs.getString(KEY_CUSTOM, "").orEmpty())
+                .map { it.copy(category = SourceRules.categoryFor(it.category, it.url, base)) }
         } else {
             emptyList()
         }
@@ -225,6 +256,9 @@ class SourceStore(context: Context) {
      *
      * 顺手把它从 [disabledIds] 里摘掉 —— 否则每删一个源就留一个永远用不上的 id
      * 在偏好文件里，删删加加几十次之后那里面全是垃圾。
+     *
+     * 删掉的是 relay 条目时，文件名要记进 [relayRemovedEndpoints]。不记的话下一次静默
+     * 自动同步会把它原样加回来，用户看到的症状就是「我明明删了它，它自己又回来了」。
      */
     fun removeCustom(id: String) {
         // 只能在自建源里找：内置源不归这里管（它只该被关，不该被删）。这样即使界面层
@@ -232,7 +266,28 @@ class SourceStore(context: Context) {
         val target = customSources.firstOrNull { it.id == id } ?: return
         customSources = customSources.filterNot { it.id == target.id }
         if (id in disabledIds) disabledIds = disabledIds - id
+        RelayRules.endpointOf(target.url)?.let { endpoint ->
+            if (endpoint !in relayRemovedEndpoints) relayRemovedEndpoints = relayRemovedEndpoints + endpoint
+        }
     }
+
+    /**
+     * 用户**亲手删掉过**的 relay 条目的文件名（见 [RelayAutoSync.skipRemoved]）。
+     *
+     * 存文件名而不是源的 id：id 由地址派生，PC 换个 IP 之后 id 就变了，而用户删的是
+     * 「知乎那一条」，不是「当时那个地址」。
+     *
+     * 上限 200 个只是兜底：这个集合正常一辈子到不了两位数，加上限是防手改过的偏好文件
+     * 每次同步都在解一个巨大的集合。超出丢最老的（追加写的，靠后的是新意图）。
+     */
+    var relayRemovedEndpoints: Set<String>
+        get() = prefs.getStringSet(KEY_RELAY_REMOVED, null)?.toSet() ?: emptySet()
+        set(value) {
+            val capped = if (value.size <= MAX_RELAY_REMOVED) value else value.sorted()
+                .takeLast(MAX_RELAY_REMOVED)
+                .toSet()
+            prefs.edit().putStringSet(KEY_RELAY_REMOVED, capped).apply()
+        }
 
     /**
      * 批量导入（OPML）。返回真正新增的条数。
@@ -268,6 +323,72 @@ class SourceStore(context: Context) {
 
         if (fresh.isNotEmpty()) customSources = customSources + fresh
         return fresh.size
+    }
+
+    /**
+     * relay 同步专用的导入：按 feed 的文件名（[RelayRules.endpointOf]）对齐 ——
+     * 已有同名的自建源就**只改地址**，没有才新增。
+     *
+     * 为什么不能直接用 [importSources]：它按整条地址判重，而 relay 的地址里带着 PC 的
+     * IP。家里 DHCP 一换地址，再同步一次就是「新增 N 条 + 老 N 条永远失败」，用户得手动
+     * 把老的删干净。文件名才是这条订阅的身份 —— 它在 harvest 那边就是 feed 的 id，
+     * 换 IP、换机器都不变。
+     *
+     * 只动自建源，内置列表不参与匹配。改地址时保留用户那份名字和分类，只换地址和
+     * 派生出的 id：这次同步的语义是「这条订阅搬走了」，不是「换个名字重订阅一遍」。
+     *
+     * **已知取舍**：id 由地址派生（见 [SourceRules.customId]），所以搬过地址的源会丢掉
+     * 之前在旧 id 上的手动开关，回到默认「开着」。反过来为了保住 id 而让 id 和地址不对应，
+     * 会把那条派生规则破坏掉，代价更大。
+     */
+    fun syncRelaySources(incoming: List<FeedSource>, respectRemoved: Boolean = false): RelayCounts {
+        // 静默自动同步要尊重「用户亲手删过」那份名单；扫码/深链那条确认流程不用 ——
+        // 用户手点一次同步，意思就是「我要这份清单」，那老账一笔勾销。
+        val list = if (respectRemoved) {
+            RelayAutoSync.skipRemoved(incoming, relayRemovedEndpoints)
+        } else {
+            if (relayRemovedEndpoints.isNotEmpty()) relayRemovedEndpoints = emptySet()
+            incoming
+        }
+        val current = customSources.toMutableList()
+        val room = (SourceRules.MAX_COUNT - current.size).coerceAtLeast(0)
+        val taken = HashSet<String>()
+        var added = 0
+        var moved = 0
+
+        for (source in list) {
+            val url = SourceRules.normalizeUrl(source.url)
+            if (!SourceRules.looksLikeUrl(url)) continue
+            val endpoint = RelayRules.endpointOf(url) ?: continue
+            // 同一份 OPML 里出现两次同一个文件名（手改过的 feeds.json 会这样）：只认第一条
+            if (!taken.add(endpoint)) continue
+
+            val index = current.indexOfFirst { RelayRules.endpointOf(it.url) == endpoint }
+            when {
+                index < 0 -> if (added < room) {
+                    current += FeedSource(
+                        id = SourceRules.customId(url),
+                        name = SourceRules.sanitizeName(source.name)
+                            .ifEmpty { SourceRules.fallbackName(url) },
+                        url = url,
+                        // 清单里没带目录时归「电脑端采集」而不是「自建」：这批内容的出处是
+                        // 那台 PC，用户在首页就是按这个分类找它们的
+                        category = SourceRules.sanitizeName(source.category)
+                            .ifEmpty { SourceRules.RELAY_CATEGORY },
+                        custom = true,
+                    )
+                    added++
+                }
+
+                current[index].url != url -> {
+                    current[index] = current[index].copy(id = SourceRules.customId(url), url = url)
+                    moved++
+                }
+            }
+        }
+
+        if (added > 0 || moved > 0) customSources = current
+        return RelayCounts(added, moved)
     }
 
     /**
@@ -321,10 +442,24 @@ class SourceStore(context: Context) {
         private const val DEFAULTS_VERSION = 1
 
         private const val KEY_CUSTOM = "custom_sources"
+        private const val KEY_RELAY_REMOVED = "relay_removed_endpoints"
+        private const val MAX_RELAY_REMOVED = 200
         private const val KEY_DISABLED = "disabled_sources"
         private const val KEY_DEFAULTS_VERSION = "source_defaults_version"
 
         /** 老格式的 key：存的是「**开着的**源 id」。只用于一次性迁移。 */
         private const val KEY_LEGACY_ENABLED = "enabled_sources"
     }
+}
+
+/** 一次 relay 同步对存储做了什么，见 [SourceStore.syncRelaySources]。 */
+data class RelayCounts(
+
+    /** 新增的订阅数。 */
+    val added: Int,
+
+    /** 只是换了地址（PC 的 IP 变了）的订阅数。 */
+    val moved: Int,
+) {
+    val changed: Int get() = added + moved
 }

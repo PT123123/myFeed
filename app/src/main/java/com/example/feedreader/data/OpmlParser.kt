@@ -27,11 +27,13 @@ class OpmlParser(
 
     /**
      * @param fallbackCategory 源不在任何目录下时给它的分类。
+     * @param baseUrl 清单里 `xmlUrl` 的解析基准，null（默认）表示按字面收 —— 见 [parse]。
      */
     fun parse(
         xml: String,
         fallbackCategory: String = SourceRules.FALLBACK_CATEGORY,
         limit: Int = MAX_SOURCES,
+        baseUrl: String? = null,
     ): List<FeedSource> {
         val parser = createParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
@@ -68,7 +70,12 @@ class OpmlParser(
                             openOutlines.addLast(label?.let { SourceRules.sanitizeName(it) }.orEmpty())
                         } else {
                             openOutlines.addLast(null)
-                            val url = SourceRules.normalizeUrl(xmlUrl)
+                            // baseUrl 非空时先重基再校验：harvest 导出的清单写的是相对
+                            // xmlUrl，而 looksLikeUrl 只认绝对地址 —— 不在这里补全，相对
+                            // 项会在下面这行被当成坏数据丢掉，调用方的 rebaseSources 根本
+                            // 拿不到东西可以重基（表现是「这份 OPML 里没有可用的订阅源」）。
+                            val resolved = baseUrl?.let { RelayRules.rebaseUrl(xmlUrl, it) } ?: xmlUrl
+                            val url = SourceRules.normalizeUrl(resolved)
                             if (SourceRules.looksLikeUrl(url) && seenIds.add(SourceRules.customId(url))) {
                                 out += FeedSource(
                                     id = SourceRules.customId(url),

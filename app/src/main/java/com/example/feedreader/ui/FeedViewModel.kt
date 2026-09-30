@@ -2,6 +2,7 @@ package com.example.feedreader.ui
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.feedreader.data.Article
@@ -14,9 +15,17 @@ import com.example.feedreader.data.Interest
 import com.example.feedreader.data.InterestStore
 import com.example.feedreader.data.Interests
 import com.example.feedreader.data.OpmlParser
+import com.example.feedreader.data.ReadStateStore
 import com.example.feedreader.data.ProbeResult
+import com.example.feedreader.data.RelayAutoSync
+import com.example.feedreader.data.RelayCommandClient
+import com.example.feedreader.data.RelayCommands
+import com.example.feedreader.data.RelayIssue
+import com.example.feedreader.data.RelayRules
+import com.example.feedreader.data.RelaySelfTest
 import com.example.feedreader.data.SearchEngine
 import com.example.feedreader.data.SettingsStore
+import com.example.feedreader.data.WebDarkMode
 import com.example.feedreader.data.SourceRules
 import com.example.feedreader.data.SourceStore
 import com.example.feedreader.data.SearchApiKeys
@@ -42,6 +51,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 /**
  * 需要 Application 来拿 SharedPreferences 和缓存目录，所以是 AndroidViewModel。
@@ -65,6 +77,14 @@ class FeedViewModel @JvmOverloads constructor(
      * 和「新加一个源」会走两条互不知情的路径。
      */
     private val sourceStore = SourceStore(app)
+
+    /**
+     * 已读记录。和 [cache] 一样落在 filesDir，只是键换成了「这篇读过没有」。
+     *
+     * 单独一个存储而不是塞进偏好文件：一次刷新六百多条卡片里点过的都要记，
+     * 而 SharedPreferences 每次改一个键都要重写整份 XML。
+     */
+    private val readState = ReadStateStore.forApp(app)
 
     private val opmlParser = OpmlParser()
 
@@ -143,8 +163,61 @@ class FeedViewModel @JvmOverloads constructor(
     private val _useInAppBrowser = MutableStateFlow(settings.useInAppBrowser)
     val useInAppBrowser: StateFlow<Boolean> = _useInAppBrowser.asStateFlow()
 
+    /** crawlbase relay 的基地址，给设置页回显。空串 = 还没同步过。 */
+    private val _relayBaseUrl = MutableStateFlow(settings.relayBaseUrl)
+    val relayBaseUrl: StateFlow<String> = _relayBaseUrl.asStateFlow()
+
+    /** 已确认过的 relay 要不要在刷新时偷偷重拉一遍清单。 */
+    private val _relayAutoSync = MutableStateFlow(settings.relayAutoSync)
+    val relayAutoSync: StateFlow<Boolean> = _relayAutoSync.asStateFlow()
+
+    /**
+     * 命令口的配对 token。空串 = 这台电脑只出静态 RSS，没开 `--allow-commands`。
+     *
+     * 它是扫码时顺手存下来的（`myfeed://relay-sync?base=…&tok=…`），没有手填入口 ——
+     * 让用户抄 16 个随机字符换不来安全性，只会换来一次「我抄错了」。
+     */
+    private val _relayCommandToken = MutableStateFlow(settings.relayCommandToken)
+    val relayCommandToken: StateFlow<String> = _relayCommandToken.asStateFlow()
+
+    /** 每次现取：地址与 token 都可能刚被扫码换掉，缓存一份会连到上一台电脑。 */
+    private fun commandClient() = RelayCommandClient(
+        base = settings.relayBaseUrl,
+        token = settings.relayCommandToken,
+        client = repository.client,
+    )
+
+    /**
+     * 向那台电脑下一条采集命令。
+     *
+     * `run` 只回「已受理」，结果靠 [relayCommandStatus] 轮询；plan / regen 是同步的。
+     * 这里不判「该不该显示成功」—— 那是 [RelayStatus] 的事，这边只搬运。
+     */
+    suspend fun sendRelayCommand(action: String, feed: String?): RelayCommands.Reply =
+        commandClient().send(action, feed)
+
+    suspend fun relayCommandStatus(): RelayCommands.Status? = commandClient().status()
+
+    /**
+     * 上一次去读那台 PC 的清单是什么时候，给「电脑端采集」页的状态行。
+     *
+     * 静默同步和手动同步都算。它是**展示用**的镜像：真正的节流读的是
+     * `settings.relayLastAutoSyncAt`，那边失败也会记一笔，这里不动那个语义。
+     */
+    private val _relayLastSyncAt = MutableStateFlow(settings.relayLastAutoSyncAt)
+    val relayLastSyncAt: StateFlow<Long> = _relayLastSyncAt.asStateFlow()
+
     private val _cacheStats = MutableStateFlow(CacheStats())
     val cacheStats: StateFlow<CacheStats> = _cacheStats.asStateFlow()
+
+    /**
+     * 已读记录：`article.id -> 什么时候读的`。
+     *
+     * 暴露成 Map 而不是 `Set<String>`，是为了让「上次读到」这一信息留着 ——
+     * 设置页要报条数、以后想按已读时间清都能用得上。界面判断只需 `id in readAt`。
+     */
+    private val _readAt = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val readAt: StateFlow<Map<String, Long>> = _readAt.asStateFlow()
 
     private val _retentionDays = MutableStateFlow(settings.cacheRetentionDays)
     val retentionDays: StateFlow<Int> = _retentionDays.asStateFlow()
@@ -154,6 +227,10 @@ class FeedViewModel @JvmOverloads constructor(
 
     private val _searchEngine = MutableStateFlow(SearchEngine.of(settings.searchEngineId))
     val searchEngine: StateFlow<SearchEngine> = _searchEngine.asStateFlow()
+
+    /** 内置浏览器的网页暗色模式。 */
+    private val _webDarkMode = MutableStateFlow(WebDarkMode.of(settings.webDarkModeId))
+    val webDarkMode: StateFlow<WebDarkMode> = _webDarkMode.asStateFlow()
 
     /**
      * 上一轮召回拿到的候选池。
@@ -165,6 +242,11 @@ class FeedViewModel @JvmOverloads constructor(
 
     init {
         viewModelScope.launch {
+            // 已读记录先铺，首屏才不会把读过的当新内容推在最前面
+            _readAt.value = withContext(Dispatchers.IO) { readState.load() }
+            // 每次进程启动一行。已读记录出问题（文件被清、格式判坏、90 天过期）时，
+            // 这条是唯一能在本机外面看到的证据 —— 界面上「全都未读」和「记录被清空」长得一样。
+            Log.i("FeedReadState", "已读记录 ${_readAt.value.size} 条")
             // 先按当前策略清一遍再加载：改了保留天数/上限之后，下次启动就生效
             val stats = withContext(Dispatchers.IO) {
                 cache.prune(settings.cacheRetentionDays, settings.cacheMaxBytes())
@@ -172,6 +254,38 @@ class FeedViewModel @JvmOverloads constructor(
             }
             _cacheStats.value = stats
             load()
+        }
+    }
+
+    /**
+     * 记下「这篇点开过」。判定标准就是点开，不是读完 —— 见 [ReadStateStore] 的取舍。
+     *
+     * 写盘丢给 IO 线程：一次点击不该等一次文件重写，而连点几条会由存储层的
+     * 串行化兜住。内存里那份先更新，界面立刻压暗。
+     */
+    fun markRead(article: Article) {
+        if (article.id.isBlank() || _readAt.value.containsKey(article.id)) return
+        val now = System.currentTimeMillis()
+        _readAt.value = _readAt.value + (article.id to now)
+        viewModelScope.launch(Dispatchers.IO) { readState.save(_readAt.value, now) }
+    }
+
+    /**
+     * 清空已读记录（设置页用）。
+     *
+     * 留着它是因为「点开即已读」会误伤：手滑划到一条就压暗 90 天，没有反悔的入口
+     * 就只能等过期。清掉只是回到「全都新鲜」，内容本身一个字节都没动。
+     */
+    suspend fun clearReadState(): String {
+        val cleared = _readAt.value.size
+        _readAt.value = emptyMap()
+        val ok = withContext(Dispatchers.IO) { readState.save(emptyMap()) }
+        return if (cleared == 0) {
+            "本来就没有已读记录"
+        } else if (ok) {
+            "已清掉 $cleared 条已读记录，列表全部回到未读"
+        } else {
+            "已读记录已在界面上清空，但写盘失败：重启后可能又变回已读"
         }
     }
 
@@ -264,6 +378,205 @@ class FeedViewModel @JvmOverloads constructor(
         OpmlImportResult.Imported(parsed = parsed.size, added = added)
     }
 
+    /**
+     * 从 crawlbase relay 同步订阅 —— 直接拉 PC 上那台 harvest 服务的 `feeds.opml`。
+     *
+     * 和 [importOpml] 的区别只在来源是网络而不是本地文件，以及**按文件名对齐**
+     * （见 [SourceStore.syncRelaySources]）：relay 的清单是会长大的（在 harvest 那边加一个
+     * 账号就多一条），而 PC 的 IP 是会变的（家里 DHCP）。所以这里必须能反复点：
+     * 第二次同步只补新增的、把搬了地址的原地改掉，用户不需要先删干净再导。
+     *
+     * **基地址只在拉成功之后才落库**：填错、服务没起、防火墙挡住的地址存进去没有意义，
+     * 下次进设置页还是显示上次那个能用的。
+     *
+     * 界面那条路（扫码 / 深链确认框）走这里；刷新时的静默同步走 [autoSyncRelay]，
+     * 两者共用 [syncRelay]。
+     */
+    suspend fun syncFromRelay(rawAddress: String, token: String = ""): RelaySyncResult {
+        val previousBase = settings.relayBaseUrl
+        return when (val result = syncRelay(rawAddress, auto = false)) {
+            is RelaySyncResult.Synced -> {
+                // 只在真连上之后才动钥匙：地址填错时把旧 token 留着，等于下次扫到对的地址
+                // 也说不清用的是哪把钥匙
+                if (token.isNotBlank()) {
+                    settings.relayCommandToken = token
+                    _relayCommandToken.value = token
+                } else if (previousBase.isNotBlank() &&
+                    RelayRules.authorityOf(previousBase) != RelayRules.authorityOf(result.base)
+                ) {
+                    // 手动改地址、没带 token —— 那已经是另一台电脑了，旧钥匙留在口袋里
+                    // 只会把 token 发给不相干的机器。代价是重扫一次，而扫码本来就顺手把
+                    // 新地址一起带进来了
+                    settings.relayCommandToken = ""
+                    _relayCommandToken.value = ""
+                }
+                result
+            }
+
+            is RelaySyncResult.Failed -> result
+        }
+    }
+
+    /**
+     * 「测一下手机能不能连上这台电脑」。
+     *
+     * 两步：**读清单**（复用 [syncRelay]），再**抽查一条 feed**（复用 [FeedRepository.probe]，
+     * 和「添加订阅源」同一套判据）。只读清单不够 —— `feeds.opml` 和 `zhihu-xxx.xml` 是
+     * harvest 分两步写出来的，只写过一半时清单读得到、内容拿不到，而用户问的恰恰是
+     * 「我手机上到底有没有货」。
+     *
+     * 走 `auto = true` 那次同步的写法，是为了让这一击**不打扰用户**：不触发整轮刷新
+     * （自检不该一点就转十分钟），也不把「我亲手删过的那几条」偷偷加回来。顺带把 PC 上
+     * 新加的账号补进清单，报出来的条数才是那边的真实情况。
+     *
+     * 抽查哪一条：按 [SourceStore.allSources] 而不是启用的那份挑 —— 用户把 relay 的源全关掉
+     * 时，链路通不通这件事照样要测得出来。
+     */
+    suspend fun runRelaySelfTest(): RelaySelfTest {
+        val base = settings.relayBaseUrl
+        if (base.isBlank()) {
+            return RelaySelfTest(
+                manifestReached = false,
+                reason = "还没配过 PC 地址",
+                issue = RelayIssue.FIRST_RUN,
+            )
+        }
+
+        return when (val result = syncRelay(base, auto = true)) {
+            is RelaySyncResult.Failed -> RelaySelfTest(
+                manifestReached = false,
+                issue = result.issue,
+                reason = result.reason,
+            )
+
+            is RelaySyncResult.Synced -> {
+                val authority = RelayRules.authorityOf(result.base)
+                val sample = _allSources.value.firstOrNull {
+                    it.custom && RelayRules.authorityOf(it.url) == authority
+                }
+                val probe = sample?.let { runCatching { repository.probe(it.url) }.getOrNull() }
+                RelaySelfTest(
+                    manifestReached = true,
+                    manifestFeeds = result.total,
+                    added = result.added,
+                    moved = result.moved,
+                    sampleName = sample?.name,
+                    sampleItems = (probe as? ProbeResult.Ok)?.itemCount,
+                    sampleError = (probe as? ProbeResult.Failed)?.message
+                        ?: sample?.let { if (probe == null) "没测成" else null },
+                )
+            }
+        }
+    }
+
+    private suspend fun syncRelay(rawAddress: String, auto: Boolean): RelaySyncResult =
+        withContext(Dispatchers.IO) {
+            val base = RelayRules.normalizeBase(rawAddress)
+                ?: return@withContext RelaySyncResult.Failed(
+                    "不像个地址。填 PC 的 IP 就行，例如 192.168.1.20" +
+                        "（不带端口按 ${RelayRules.DEFAULT_PORT} 算）",
+                    RelayIssue.BAD_ADDRESS,
+                )
+
+            val xml = try {
+                http.text(RelayRules.opmlUrl(base), "text/x-opml, application/xml, text/xml, */*")
+            } catch (error: Throwable) {
+                return@withContext relayFailure(error)
+            }
+
+            val parsed = try {
+                // baseUrl 交给解析器：harvest 的清单写相对 xmlUrl，绝对地址才进得了 looksLikeUrl。
+                // 分类兜底用「电脑端采集」而不是「自建」—— 这批内容的出处是那台 PC，
+                // 首页按分类筛内容时要筛得到它（见 [SourceRules.RELAY_CATEGORY]）
+                opmlParser.parse(xml, baseUrl = base, fallbackCategory = SourceRules.RELAY_CATEGORY)
+            } catch (error: Throwable) {
+                return@withContext RelaySyncResult.Failed(
+                    "这个地址没返回 OPML。端口要填 harvest 的 serve 端口，不是浏览器的调试端口",
+                    RelayIssue.NOT_A_MANIFEST,
+                )
+            }
+
+            val sources = RelayRules.rebaseSources(parsed, base)
+            if (sources.isEmpty()) {
+                return@withContext RelaySyncResult.Failed(
+                    "这份 OPML 里没有可用的订阅源",
+                    RelayIssue.EMPTY_MANIFEST,
+                )
+            }
+
+            settings.relayBaseUrl = base
+            _relayBaseUrl.value = base
+
+            // auto = 静默同步：要尊重「用户亲手删过」那份名单，也不在此处再触发一轮 load
+            // （调用方就在 load 里，重新 load 等于自己套自己）
+            val counts = sourceStore.syncRelaySources(sources, respectRemoved = auto)
+            if (counts.changed > 0) {
+                syncEnabledSources()
+                if (!auto) load(restart = true)
+            }
+            // 只有真读到并落地才算「上次读到」；失败不动这个数（界面上那句话见 RelayStatus）
+            _relayLastSyncAt.value = System.currentTimeMillis()
+            RelaySyncResult.Synced(
+                base = base,
+                total = sources.size,
+                added = counts.added,
+                moved = counts.moved,
+            )
+        }
+
+    /** 上一次静默同步正在跑：同一轮里不该并发拉两份清单。 */
+    private var relayAutoSyncing = false
+
+    /**
+     * 刷新时顺带把已确认过的那台 relay 清单再拉一遍。返回**源列表有没有被改动**。
+     *
+     * 静默的意思是：不弹确认框（用户已经为这个地址点过一次「确认」），拉不动也不出
+     * 失败横幅 —— 那台 PC 不在线时，21 个源本身就会各自进横幅，不必再多一条。
+     * 但**一定要在 logcat 留一行**：它改的是订阅列表，出问题时必须能回答
+     * 「这几条源是谁加进来的、什么时候」。
+     */
+    private suspend fun autoSyncRelay(): Boolean {
+        val base = settings.relayBaseUrl
+        val now = System.currentTimeMillis()
+        if (relayAutoSyncing ||
+            !RelayAutoSync.shouldRun(settings.relayAutoSync, base, settings.relayLastAutoSyncAt, now)
+        ) {
+            return false
+        }
+        relayAutoSyncing = true
+        // 先占住节流再打网络：失败也算一次尝试，否则 PC 关机时每次刷新都要等一次连接超时
+        settings.relayLastAutoSyncAt = now
+        return try {
+            when (val result = syncRelay(base, auto = true)) {
+                is RelaySyncResult.Synced -> {
+                    Log.i(
+                        "FeedRelay",
+                        "自动同步 ${result.base}：清单 ${result.total} 条 · " +
+                            "新增 ${result.added} · 换地址 ${result.moved}",
+                    )
+                    result.added + result.moved > 0
+                }
+
+                is RelaySyncResult.Failed -> {
+                    // 静默同步不出横幅，但日志要能回答「是哪一类问题」——
+                    // 界面上的电脑端提示是按主机匹配的，PC 醒着时这条就是唯一的线索
+                    Log.i(
+                        "FeedRelay",
+                        "自动同步没成（${base}）：${result.reason} · ${result.issue}",
+                    )
+                    false
+                }
+            }
+        } finally {
+            relayAutoSyncing = false
+        }
+    }
+
+    fun setRelayAutoSync(value: Boolean) {
+        settings.relayAutoSync = value
+        _relayAutoSync.value = value
+    }
+
     fun setUseInAppBrowser(value: Boolean) {
         settings.useInAppBrowser = value
         _useInAppBrowser.value = value
@@ -272,6 +585,11 @@ class FeedViewModel @JvmOverloads constructor(
     fun setSearchEngine(engine: SearchEngine) {
         settings.searchEngineId = engine.id
         _searchEngine.value = engine
+    }
+
+    fun setWebDarkMode(mode: WebDarkMode) {
+        settings.webDarkModeId = mode.id
+        _webDarkMode.value = mode
     }
 
     // ------------------------------------------------------------------ 兴趣与召回
@@ -609,7 +927,8 @@ class FeedViewModel @JvmOverloads constructor(
             .filter { it.sourceId in enabled }
         if (cached.isEmpty()) return
 
-        val articles = cached.flatMap { it.articles }.sortedByDescending { it.publishedAt }
+        // distinctBy(id)：首页拿 article.id 当 LazyColumn 的 key，重复就崩
+        val articles = cached.flatMap { it.articles }.distinctBy { it.id }.sortedByDescending { it.publishedAt }
         if (articles.isEmpty()) return
 
         _state.update {
@@ -622,6 +941,23 @@ class FeedViewModel @JvmOverloads constructor(
                 scored = articles.map { article -> article.unscored() },
                 lastUpdated = cached.maxOfOrNull { feed -> feed.fetchedAt } ?: 0L,
                 showingCache = true,
+            )
+        }
+    }
+
+    /** 「没有任何内容来源」的引导面板。清掉旧列表，也别让下拉指示器一直转。 */
+    private fun showNoContentSource() {
+        lastCandidates = emptyList()
+        _state.update {
+            it.copy(
+                isLoading = false,
+                isRefreshing = false,
+                scored = emptyList(),
+                failures = emptyList(),
+                error = null,
+                noContentSource = true,
+                showingCache = false,
+                stats = null,
             )
         }
     }
@@ -643,19 +979,16 @@ class FeedViewModel @JvmOverloads constructor(
         // 一条内容来源都没有：既没兴趣词、也没启用的订阅源。这不是错误，给引导面板。
         // 注意这里**不再**拿「启用的源为空」当异常 —— 只要有兴趣词，六路召回照样能填满首页。
         if (sources.isEmpty() && _recommend.value.activeCount == 0) {
-            lastCandidates = emptyList()
-            _state.update {
-                it.copy(
-                    isLoading = false,
-                    isRefreshing = false,
-                    scored = emptyList(),
-                    failures = emptyList(),
-                    error = null,
-                    noContentSource = true,
-                    showingCache = false,
-                    stats = null,
-                )
+            if (settings.relayBaseUrl.isNotBlank()) {
+                // 但确认过 relay 地址时先别急着下结论：源清单本身可能就是那次同步该带回来的
+                // （换机、清数据、或者装好之后一直没点过刷新）。悄悄拉一次，拉到了重跑一遍，
+                // 拉不到（含被半小时节流挡掉）再回到引导面板 —— 不能让它停在一个转圈的中间态。
+                loadJob = viewModelScope.launch {
+                    if (autoSyncRelay()) load(restart = true) else showNoContentSource()
+                }
+                return
             }
+            showNoContentSource()
             return
         }
 
@@ -671,8 +1004,13 @@ class FeedViewModel @JvmOverloads constructor(
         }
 
         loadJob = viewModelScope.launch {
+            // 先给 relay 一次机会：PC 上加了账号、或者换了 IP，这一轮抓取就该用上新那份源。
+            // 半小时最多一次（见 [RelayAutoSync.shouldRun]），且只在用户确认过地址之后才发生。
+            var roundSources = sources
+            if (autoSyncRelay()) roundSources = _enabledSources.value
+
             // 磁盘缓存先顶上：秒开，断网时也有东西看
-            if (coldStart) restoreFromCache(sources)
+            if (coldStart) restoreFromCache(roundSources)
 
             // 每次进这里都重读一次设置：兴趣可能在加载途中被改过（改了会走 cancel 重来，
             // 但通道开关只改引擎不改这次任务），读最新的那个版本最省心
@@ -680,8 +1018,8 @@ class FeedViewModel @JvmOverloads constructor(
 
             // 订阅源抓取。关掉「已订阅源」这条通道就不抓 —— 那正是这个开关的意义：
             // 把 RSS 降级成一个可选语料来源，省掉十几次请求。
-            val fetched = if (snapshot.subscriptionEnabled && sources.isNotEmpty()) {
-                repository.fetchAll(sources)
+            val fetched = if (snapshot.subscriptionEnabled && roundSources.isNotEmpty()) {
+                repository.fetchAll(roundSources)
             } else {
                 FetchOutcome(emptyList(), emptyList())
             }
@@ -813,6 +1151,65 @@ sealed interface OpmlImportResult {
     data class Imported(val parsed: Int, val added: Int) : OpmlImportResult
 
     data class Failed(val reason: String) : OpmlImportResult
+}
+
+/**
+ * 从 crawlbase relay 同步的结果。见 [FeedViewModel.syncFromRelay]。
+ *
+ * [moved] 单独报出来，是因为它对应的正是「PC 换了 IP」这件事 —— 用户不必先手动删掉
+ * 老地址那几条，界面告诉他「搬了 N 条」他才知道刚才发生了什么。
+ */
+sealed interface RelaySyncResult {
+
+    /**
+     * @param base 真正生效的基地址（已经过规整，可能和用户填的不完全一样）
+     * @param total OPML 里可用的订阅条数
+     * @param added 新增条数
+     * @param moved 只改了地址的条数
+     */
+    data class Synced(val base: String, val total: Int, val added: Int, val moved: Int) : RelaySyncResult
+
+    /**
+     * [reason] 是能直接展示给用户的中文说明；[issue] 是同一个失败的**类型**，
+     * 界面拿它去要「电脑端该做什么」那份清单（见 [RelayGuidance.sectionsFor]）——
+     * 原因写给用户看，类型写给代码用，字符串以后改措辞不会把提示改坏。
+     */
+    data class Failed(val reason: String, val issue: RelayIssue) : RelaySyncResult
+}
+
+/**
+ * relay 是局域网里的明文服务，报错得说人话：这几类失败的原因和修法完全不同，
+ * 而且修法**全在那台 PC 上**，所以每条都带上对应的 [RelayIssue]。
+ */
+private fun relayFailure(error: Throwable): RelaySyncResult.Failed = when (error) {
+    is UnknownHostException -> RelaySyncResult.Failed(
+        "找不到这台主机 —— 确认手机和 PC 连的是同一个网络",
+        RelayIssue.DIFFERENT_NETWORK,
+    )
+
+    is ConnectException -> RelaySyncResult.Failed(
+        "连不上 —— PC 上 harvest 的服务起来了吗？端口填对了吗？",
+        RelayIssue.SERVICE_DOWN,
+    )
+
+    is SocketTimeoutException -> RelaySyncResult.Failed(
+        "连接超时 —— PC 多半不在这个地址上",
+        RelayIssue.UNREACHABLE,
+    )
+
+    is IOException -> when {
+        error.message?.startsWith("HTTP") == true -> RelaySyncResult.Failed(
+            "${error.message} —— 地址能连上，但那里没有 feeds.opml",
+            RelayIssue.NO_FILE,
+        )
+
+        else -> RelaySyncResult.Failed(error.message ?: "网络错误", RelayIssue.UNKNOWN)
+    }
+
+    else -> RelaySyncResult.Failed(
+        error.message ?: error.javaClass.simpleName,
+        RelayIssue.UNKNOWN,
+    )
 }
 
 /** 缓存铺出来的文章没有分数：给一个空壳，界面据此不显示推荐理由。 */

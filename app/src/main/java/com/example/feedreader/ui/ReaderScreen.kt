@@ -15,6 +15,7 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +41,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -60,7 +62,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.feedreader.data.Article
-import com.example.feedreader.data.DateParser
+import com.example.feedreader.data.ReaderRouting
+import com.example.feedreader.data.WebDarkMode
+import com.example.feedreader.ui.web.DarkPageInjector
+import com.example.feedreader.ui.web.OfflinePage
 import kotlinx.coroutines.launch
 
 /**
@@ -69,11 +74,17 @@ import kotlinx.coroutines.launch
  * 站内导航（http/https）一律留在 WebView 里；只有 mailto:/tel:/intent: 这种
  * WebView 处理不了的协议才交给系统。顶栏溢出菜单里留了一个显式的
  * 「在浏览器中打开」出口，想用外部浏览器时走它。
+ *
+ * **需要登录态的站点（知乎、小红书、X）走那个出口，不在这里解决。** WebView 的
+ * cookie 存在本应用自己的沙箱里，读不到别的浏览器的登录态；而这几家的接口除了
+ * cookie 还要站点侧签名，把 cookie 搬过来也换不来能用的请求。见
+ * [docs/crawlbase-relay.md](../../../../../../../docs/crawlbase-relay.md) 里那几组实测。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
     article: Article,
+    darkMode: WebDarkMode,
     onOpenExternal: (String) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -85,18 +96,30 @@ fun ReaderScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var loadTick by remember { mutableIntStateOf(0) }
+    // 换文章要从「只看全文」退回默认路由，否则上一篇点的「看原页」会跟到下一篇
+    var wantSite by remember(article.id) { mutableStateOf(false) }
+    val readOffline = ReaderRouting.readOffline(article) && !wantSite
+
+    val darkPages = when (darkMode) {
+        WebDarkMode.ALWAYS -> true
+        WebDarkMode.OFF -> false
+        WebDarkMode.FOLLOW_SYSTEM -> isSystemInDarkTheme()
+    }
 
     // WebView 是重量级对象：跟着这个页面建一次、销毁一次
     val webView = remember {
         WebView(context).apply {
-            configureForReading()
+            configureForReading(darkPages)
+            if (darkPages) DarkPageInjector.attach(this)
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     error = null
+                    if (darkPages && url.isWebUrl()) view?.let(DarkPageInjector::onPageStarted)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     progress = 100
+                    if (darkPages && url.isWebUrl()) view?.let(DarkPageInjector::onPageFinished)
                 }
 
                 /**
@@ -145,11 +168,11 @@ fun ReaderScreen(
     }
 
     // tick 0 = 首次加载；点刷新时 tick 自增，重新走一遍
-    LaunchedEffect(loadTick) {
+    LaunchedEffect(loadTick, readOffline) {
         error = null
         progress = 0
-        if (article.link.isBlank()) {
-            webView.loadDataWithBaseURL(null, offlineHtml(article), "text/html", "utf-8", null)
+        if (readOffline) {
+            webView.loadDataWithBaseURL(null, OfflinePage.html(article, darkPages), "text/html", "utf-8", null)
         } else {
             webView.loadUrl(article.link)
         }
@@ -175,7 +198,13 @@ fun ReaderScreen(
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
-                                text = "${article.sourceName} · ${hostOf(article.link)}",
+                                text = when {
+                                    !readOffline -> "${article.sourceName} · ${hostOf(article.link)}"
+                                    // 摘要长度就说是摘要：让人知道下面这几段不是整篇，原页才是
+                                    ReaderRouting.isExcerptOnly(article) ->
+                                        "${article.sourceName} · 订阅里只有摘要，原页要登录"
+                                    else -> "${article.sourceName} · 全文来自订阅，原页要登录"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -188,6 +217,13 @@ fun ReaderScreen(
                         }
                     },
                     actions = {
+                        // 全文和原页是两种东西：全文能离线读、原页可能要登录才能看评论。
+                        // 出口摆在栏上而不是只塞进三点菜单，否则没人找得到。
+                        if (ReaderRouting.readOffline(article)) {
+                            TextButton(onClick = { wantSite = !wantSite }) {
+                                Text(if (readOffline) "看原页" else "回到全文")
+                            }
+                        }
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "更多")
                         }
@@ -275,7 +311,15 @@ fun ReaderScreen(
     }
 }
 
-private fun WebView.configureForReading() {
+/**
+ * WebView 自己的底色：离线全文那一页 [OfflinePage.html] 用的是同一个颜色，
+ * 于是加载期间露出来的就是最终背景，不会在暗色界面中间白一块。
+ *
+ * 这里刻意**不**开 algorithmic darkening：暗色是 [DarkPageInjector] 注入 CSS 做的，
+ * 两套一起上会变成「反相之上再反相」。
+ */
+private fun WebView.configureForReading(dark: Boolean) {
+    setBackgroundColor(if (dark) OfflinePage.DARK_BACKGROUND else OfflinePage.LIGHT_BACKGROUND)
     settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true
@@ -311,24 +355,6 @@ private fun copyLink(context: Context, url: String) {
 private fun hostOf(url: String): String =
     runCatching { Uri.parse(url).host }.getOrNull()?.removePrefix("www.") ?: "本地摘要"
 
-/** 源里偶尔有没带链接的条目，本地渲染一份摘要兜底，别给用户白屏。 */
-private fun offlineHtml(article: Article): String = """
-    <!doctype html>
-    <html><head><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-      body { font-family: sans-serif; line-height: 1.7; padding: 20px; }
-      h1 { font-size: 1.3rem; }
-      .meta { color: #888; font-size: .8rem; margin-bottom: 1.2em; }
-    </style></head>
-    <body>
-      <h1>${escape(article.title)}</h1>
-      <div class="meta">${escape(article.sourceName)} · ${escape(DateParser.display(article))}</div>
-      <p>${escape(article.excerpt).ifBlank { "这条订阅源没有提供正文摘要，也没有原文链接。" }}</p>
-    </body></html>
-""".trimIndent()
-
-private fun escape(text: String): String = text
-    .replace("&", "&amp;")
-    .replace("<", "&lt;")
-    .replace(">", "&gt;")
+/** 只有真正的网页才配被注入暗色：自己渲染的那页正文走 [OfflinePage]，不经过注入脚本。 */
+private fun String?.isWebUrl(): Boolean =
+    this != null && (startsWith("http://") || startsWith("https://"))

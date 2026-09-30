@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.feedreader"
         minSdk = 21
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 17
+        versionName = "1.5.0"
 
         ndk {
             // 只出 64 位。端侧推理用完整版 onnxruntime（libonnxruntime.so 17.6MB/ABI），
@@ -22,9 +22,22 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            // 正式包直接用用户目录下那只 Android SDK 自生成的 debug keystore。
+            // 路径按 user.home 现算，别把本机绝对路径写进这份要公开的构建脚本。
+            val home = System.getProperty("user.home")
+            storeFile = File(home, ".android" + File.separator + "debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -63,6 +76,19 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // 应用内扫一扫。ML Kit 用 **bundled** 那个坐标（不是 play-services-code-scanner）：
+    // 识别模型打进 APK，小米/华为这类没装 Google Play 服务的机器也能扫，代价是 APK 大
+    // 约 2MB。只开 QR 一种码制（见 ScanScreen），比全码制快。
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
+    // 内置浏览器的暗色模式要在 document-start 阶段注样式（`addDocumentStartJavaScript`），
+    // android.webkit 那一套里没有对应 API，只有 androidx.webkit 的 WebViewCompat 有。
+    implementation("androidx.webkit:webkit:1.12.1")
 
     // 端侧语义检索内核（tokenizer / ONNX 编码器 / 向量缓存 / 模型下载）。
     // 拆成独立模块是为了将来能单独出 AAR 给别的应用用；onnxruntime 依赖随它传递过来。
