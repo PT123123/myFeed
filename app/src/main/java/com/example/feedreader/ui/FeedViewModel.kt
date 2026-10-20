@@ -7,7 +7,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.feedreader.data.Article
 import com.example.feedreader.data.CacheStats
+import com.example.feedreader.data.DesktopFeedCache
+import com.example.feedreader.data.DesktopFeedClient
 import com.example.feedreader.data.FeedCache
+import com.example.feedreader.data.FeedFailure
 import com.example.feedreader.data.FeedRepository
 import com.example.feedreader.data.FeedSource
 import com.example.feedreader.data.FetchOutcome
@@ -85,6 +88,7 @@ class FeedViewModel @JvmOverloads constructor(
      * 而 SharedPreferences 每次改一个键都要重写整份 XML。
      */
     private val readState = ReadStateStore.forApp(app)
+    private val desktopFeedCache = DesktopFeedCache.forApp(app)
 
     private val opmlParser = OpmlParser()
 
@@ -166,6 +170,19 @@ class FeedViewModel @JvmOverloads constructor(
     /** crawlbase relay 的基地址，给设置页回显。空串 = 还没同步过。 */
     private val _relayBaseUrl = MutableStateFlow(settings.relayBaseUrl)
     val relayBaseUrl: StateFlow<String> = _relayBaseUrl.asStateFlow()
+
+    private val _desktopFeedBaseUrl = MutableStateFlow(settings.desktopFeedBaseUrl)
+    val desktopFeedBaseUrl: StateFlow<String> = _desktopFeedBaseUrl.asStateFlow()
+
+    fun setDesktopFeedConnection(baseUrl: String) {
+        if (baseUrl.isBlank()) {
+            settings.desktopFeedBaseUrl = ""
+        } else {
+            settings.desktopFeedBaseUrl = baseUrl
+        }
+        _desktopFeedBaseUrl.value = settings.desktopFeedBaseUrl
+        load(restart = true)
+    }
 
     /** 已确认过的 relay 要不要在刷新时偷偷重拉一遍清单。 */
     private val _relayAutoSync = MutableStateFlow(settings.relayAutoSync)
@@ -473,7 +490,7 @@ class FeedViewModel @JvmOverloads constructor(
         withContext(Dispatchers.IO) {
             val base = RelayRules.normalizeBase(rawAddress)
                 ?: return@withContext RelaySyncResult.Failed(
-                    "不像个地址。填 PC 的 IP 就行，例如 192.168.1.20" +
+                    "不像个地址。填 PC 的 IP 就行，例如 192.168.0.2" +
                         "（不带端口按 ${RelayRules.DEFAULT_PORT} 算）",
                     RelayIssue.BAD_ADDRESS,
                 )
@@ -925,10 +942,11 @@ class FeedViewModel @JvmOverloads constructor(
         val enabled = sources.map { it.id }.toSet()
         val cached = withContext(Dispatchers.IO) { cache.readAll() }
             .filter { it.sourceId in enabled }
-        if (cached.isEmpty()) return
-
         // distinctBy(id)：首页拿 article.id 当 LazyColumn 的 key，重复就崩
-        val articles = cached.flatMap { it.articles }.distinctBy { it.id }.sortedByDescending { it.publishedAt }
+        val remote = withContext(Dispatchers.IO) { desktopFeedCache.read() }
+        val articles = (cached.flatMap { it.articles } + remote)
+            .distinctBy { it.id }
+            .sortedByDescending { it.publishedAt }
         if (articles.isEmpty()) return
 
         _state.update {
@@ -939,7 +957,8 @@ class FeedViewModel @JvmOverloads constructor(
                 // 缓存里的文章没有分数（分数是每轮现算的），先按时间序摆出来。
                 // 等网络那一轮回来会整体换成排好序的那份。
                 scored = articles.map { article -> article.unscored() },
-                lastUpdated = cached.maxOfOrNull { feed -> feed.fetchedAt } ?: 0L,
+                lastUpdated = cached.maxOfOrNull { feed -> feed.fetchedAt }
+                    ?: System.currentTimeMillis(),
                 showingCache = true,
             )
         }
@@ -978,7 +997,7 @@ class FeedViewModel @JvmOverloads constructor(
 
         // 一条内容来源都没有：既没兴趣词、也没启用的订阅源。这不是错误，给引导面板。
         // 注意这里**不再**拿「启用的源为空」当异常 —— 只要有兴趣词，六路召回照样能填满首页。
-        if (sources.isEmpty() && _recommend.value.activeCount == 0) {
+        if (sources.isEmpty() && _recommend.value.activeCount == 0 && settings.desktopFeedBaseUrl.isBlank()) {
             if (settings.relayBaseUrl.isNotBlank()) {
                 // 但确认过 relay 地址时先别急着下结论：源清单本身可能就是那次同步该带回来的
                 // （换机、清数据、或者装好之后一直没点过刷新）。悄悄拉一次，拉到了重跑一遍，
@@ -1024,11 +1043,29 @@ class FeedViewModel @JvmOverloads constructor(
                 FetchOutcome(emptyList(), emptyList())
             }
 
+            var desktopSyncFailed = false
+            val desktopPosts = if (settings.desktopFeedBaseUrl.isNotBlank()) {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        DesktopFeedClient(
+                            settings.desktopFeedBaseUrl,
+                            repository.client,
+                        ).snapshot().also(desktopFeedCache::write)
+                    }.getOrElse { error ->
+                        desktopSyncFailed = true
+                        Log.w("DesktopFeed", "同步电脑端内容失败", error)
+                        desktopFeedCache.read()
+                    }
+                }
+            } else {
+                emptyList()
+            }
+
             val encoder = ensureEncoder()
 
             val outcome = recommendEngine.recommend(
                 interests = snapshot.interests,
-                subscribed = fetched.articles,
+                subscribed = fetched.articles + desktopPosts,
                 encoder = encoder,
                 pool = semanticEngine.pool(),
             )
@@ -1051,7 +1088,12 @@ class FeedViewModel @JvmOverloads constructor(
             _recommend.update { it.copy(vectorStats = vectorStats) }
 
             _state.update { previous ->
-                val failures = fetched.failures + outcome.failures
+                val failures = fetched.failures +
+                    if (desktopSyncFailed && desktopPosts.isEmpty()) {
+                        listOf(FeedFailure("阅流电脑端", "连接失败；请检查电脑地址和网络"))
+                    } else {
+                        emptyList()
+                    } + outcome.failures
                 val nothingLoaded = outcome.articles.isEmpty() && failures.isNotEmpty()
 
                 previous.copy(

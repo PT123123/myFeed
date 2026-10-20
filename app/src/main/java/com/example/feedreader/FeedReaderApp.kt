@@ -69,6 +69,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -126,6 +127,7 @@ fun FeedReaderApp(
     val allSources by viewModel.allSources.collectAsState()
     val useInAppBrowser by viewModel.useInAppBrowser.collectAsState()
     val relayBaseUrl by viewModel.relayBaseUrl.collectAsState()
+    val desktopFeedBaseUrl by viewModel.desktopFeedBaseUrl.collectAsState()
     val relayAutoSync by viewModel.relayAutoSync.collectAsState()
     val relayLastSyncAt by viewModel.relayLastSyncAt.collectAsState()
     val relayCommandToken by viewModel.relayCommandToken.collectAsState()
@@ -158,6 +160,7 @@ fun FeedReaderApp(
 
     /** 只看未读。转屏幕方向要留着，但不必写进偏好 —— 它是一次阅读会话的手感，不是设置。 */
     var hideRead by rememberSaveable { mutableStateOf(false) }
+    var onlyRelevant by rememberSaveable { mutableStateOf(true) }
     var opened by remember { mutableStateOf<Article?>(null) }
     // 应用内扫一扫认出来的链接，和外发深链走同一套确认框与执行逻辑
     var scanned by remember { mutableStateOf<DeepLink?>(null) }
@@ -200,11 +203,15 @@ fun FeedReaderApp(
     val unreadCount = remember(inCategory, readBeforeSession) {
         inCategory.count { it.article.id !in readBeforeSession }
     }
-    val visible = remember(inCategory, query, readAt, readBeforeSession, hideRead) {
+    val visible = remember(inCategory, query, readAt, readBeforeSession, hideRead, onlyRelevant,
+        recommend.activeCount, filteredSource, activeCategory, state.showingCache) {
         val keyword = query.trim()
         inCategory.filter { scored ->
             val article = scored.article
             (!hideRead || article.id !in readBeforeSession) &&
+                (!onlyRelevant || recommend.activeCount == 0 || state.showingCache ||
+                    keyword.isNotEmpty() || filteredSource != null || activeCategory != FeedSources.ALL ||
+                    scored.matchedInterests.isNotEmpty()) &&
                 ArticleSearch.matches(article, keyword)
         }
     }
@@ -337,6 +344,8 @@ fun FeedReaderApp(
             PAGE_SETTINGS -> SettingsScreen(
                 // 设置页要展示全部源（含关掉的、含 relay 同步来的）才能给出开关
                 sources = allSources,
+                desktopFeedBaseUrl = desktopFeedBaseUrl,
+                onSetDesktopFeedConnection = viewModel::setDesktopFeedConnection,
                 enabledIds = sources.map { it.id }.toSet(),
                 useInAppBrowser = useInAppBrowser,
                 webDarkMode = webDarkMode,
@@ -380,7 +389,7 @@ fun FeedReaderApp(
         drawerContent = {
             ModalDrawerSheet {
                 Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 16.dp)) {
-                    Text("MyFeed", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = state.updatedLabel(),
@@ -458,7 +467,7 @@ fun FeedReaderApp(
                 TopAppBar(
                     title = {
                         Column {
-                            Text("MyFeed", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold)
                             Text(
                                 text = state.updatedLabel(),
                                 style = MaterialTheme.typography.labelSmall,
@@ -518,11 +527,13 @@ fun FeedReaderApp(
                     categories = categories,
                     unreadCount = unreadCount,
                     hideRead = hideRead,
+                    onlyRelevant = onlyRelevant,
                     sourceName = filteredSource?.name,
                     // 分类和「只看某条源」是互斥的两种筛法：点分类就是用户自己选了回到分类视角
                     onSelect = { category = it; sourceFilter = null },
                     onClearSource = { sourceFilter = null },
                     onToggleHideRead = { hideRead = !hideRead },
+                    onToggleRelevant = { onlyRelevant = !onlyRelevant },
                 )
 
                 TabRow(selectedTabIndex = tab) {
@@ -652,10 +663,12 @@ private fun CategoryRow(
     categories: List<String>,
     unreadCount: Int,
     hideRead: Boolean,
+    onlyRelevant: Boolean,
     sourceName: String?,
     onSelect: (String) -> Unit,
     onClearSource: () -> Unit,
     onToggleHideRead: () -> Unit,
+    onToggleRelevant: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -664,6 +677,11 @@ private fun CategoryRow(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        FilterChip(
+            selected = onlyRelevant,
+            onClick = onToggleRelevant,
+            label = { Text(if (onlyRelevant) "兴趣匹配" else "全部候选") },
+        )
         sourceName?.let { name ->
             FilterChip(
                 selected = true,
@@ -1040,6 +1058,18 @@ private fun BodyHitLabel(article: Article, keyword: String) {
 
 @Composable
 private fun ReasonLabel(scored: ScoredArticle) {
+    val remoteReason = scored.article.remoteReason
+    if (remoteReason.isNotBlank()) {
+        Text(
+            text = "AI 策展：$remoteReason",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        return
+    }
     if (scored.topInterest.isEmpty()) return
     Text(
         text = "因为你关注「${scored.topInterest}」",
@@ -1062,8 +1092,15 @@ private fun ReasonLabel(scored: ScoredArticle) {
 private fun readTitleColor(read: Boolean): Color =
     if (read) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
 
-private fun Article.byline(): String =
-    if (author.equals(sourceName, ignoreCase = true)) sourceName else "$sourceName · $author"
+private fun Article.byline(): String = if (remotePostId != null) {
+    val type = when (remoteKind) {
+        "sourced" -> "AI 整理"
+        "original" -> "AI 原创"
+        "explore", "exploration" -> "AI 探索"
+        else -> "AI 内容"
+    }
+    "$type · $sourceName"
+} else if (author.equals(sourceName, ignoreCase = true)) sourceName else "$sourceName · $author"
 
 private fun FeedUiState.updatedLabel(): String = when {
     lastUpdated <= 0L -> "尚未更新"

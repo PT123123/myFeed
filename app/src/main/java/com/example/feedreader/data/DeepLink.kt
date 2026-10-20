@@ -11,8 +11,8 @@ import java.net.URLDecoder
  *
  * 支持两种：
  *
- *   myfeed://relay-sync?base=http%3A%2F%2F192.168.1.20%3A8099
- *   myfeed://subscribe?url=http%3A%2F%2F192.168.1.20%3A8099%2Fzhihu-x.xml&title=%E2%80%A6
+ *   myfeed://relay-sync?base=http%3A%2F%2F192.168.0.2%3A8099
+ *   myfeed://subscribe?url=http%3A%2F%2F192.168.0.2%3A8099%2Fzhihu-x.xml&title=%E2%80%A6
  *
  * 只吃字符串、用 JDK 的 URLDecoder，是为了能在普通 JVM 单测里跑（同 [RelayRules]）。
  */

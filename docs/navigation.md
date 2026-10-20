@@ -87,7 +87,7 @@
   `上次读到清单`、`这份清单管不到什么`、`复制这一页的全部命令` 在 `classes6.dex`，
   **`兴趣与设置` 全包查不到**（说明改名真的进了包）。
 - 设备数据探针（`run-as`）：`shared_prefs/myfeed_settings.xml` 里 `relay_base_url` =
-  `http://192.168.1.20:8099`、21 个 `zhihu-*.xml` 端点、`relay_last_sync_at` 在位，
+  `http://<LAN_IP>:8099`、21 个 `zhihu-*.xml` 端点、`relay_last_sync_at` 在位，
   `relay_auto_sync` 键仍不存在（= 走默认开）。
 
 ## 没人验到的
@@ -104,12 +104,12 @@
 拆完页之后用户提的第二轮意见：**「这一页里全是设置，我找不到该从哪看电脑端采来的东西」**，
 以及「电脑端我自己就能联调，你可以在手机端去看的」。量了一遍，两件事都成立，但成立的方式不同。
 
-链路本身是通的（2026-09-27 23:2x，他那台平板 ↔ PC `192.168.1.20:8099`）：
+链路本身是通的（2026-09-27 23:2x，他那台平板 ↔ PC `<LAN_IP>:8099`）：
 
 | 检查 | 结果 |
 | --- | --- |
-| 设备侧网络 | `nc -z 192.168.1.20 8099` 通；`curl feeds.opml` → 200 / 24ms；`curl zhihu-sample-zhi-75-54.xml` → 200 / 58677B |
-| App 偏好 | `relay_base_url=http://192.168.1.20:8099`、21 条 `zhihu-*.xml` 源在位、`relay_last_sync_at` 在位 |
+| 设备侧网络 | `nc -z <LAN_IP> 8099` 通；`curl feeds.opml` → 200 / 24ms；`curl zhihu-sample-zhi-75-54.xml` → 200 / 58677B |
+| App 偏好 | `relay_base_url=http://<LAN_IP>:8099`、21 条 `zhihu-*.xml` 源在位、`relay_last_sync_at` 在位 |
 | 手机缓存 | 20 个 relay 源文件共 **420 条知乎回答**，写入时间就是量的前几分钟；`zhihu-sample-bei-jiu` 一条都没有（PC 侧那份 XML 里 `<item>` 为 0，不是链路坏） |
 | PC 侧 | `harvest/out/zhihu-*.xml` 那 21 条合计 **477 条 `<item>`**；`state/*.json` 的 `last_run_at` 都在 18:30–18:39 |
 
@@ -253,8 +253,8 @@ relay 同步进来的源分类从「自建」改成**「电脑端采集」**（`
   `command_token`、`127.0.0.1:8099/pair`（`classes6.dex`）。
 - PC 侧那台服务当场量回来的是：`plan` 带 token **200 / 0.10s（24 行）**、不带 **401**、
   `/pair` 200 且深链与二维码都是编码过的、页面不印 token、`feeds.opml` 仍 200。
-  绑定的是 `192.168.1.20`，所以 `127.0.0.1:8099` 连不上 —— 这点在文档里写明白，别让人以为服务死了。
-- **设备偏好**：`relay_base_url=http://192.168.1.20:8099` 在位，`relay_command_token` **不在**
+  绑定的是 `<LAN_IP>`，所以 `127.0.0.1:8099` 连不上 —— 这点在文档里写明白，别让人以为服务死了。
+- **设备偏好**：`relay_base_url=http://<LAN_IP>:8099` 在位，`relay_command_token` **不在**
   （还没扫码）。所以这一版装机之后那一节会显示成「命令口没开」那副样子，那是实情不是 bug。
 
 ### 还是没人验到的

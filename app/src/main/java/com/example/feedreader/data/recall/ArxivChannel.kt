@@ -15,7 +15,7 @@ import java.util.Locale
  * 选它的理由：`https://export.arxiv.org/api/query` 是 arXiv 官方搜索接口，
  * 免费、无需 key、支持关键词查询，返回 Atom（RSS/Atom 一类）。实测（2026-09-25）
  * pharmacology / large language model 都能稳定返回 10 条。它正好填补
- * 「药学 / 神经科学 / LLM / 肌肥大」这类兴趣词在订阅源里**完全没有对应语料**的空缺——
+ * 部分专业兴趣词在订阅源里**完全没有对应语料**的空缺——
  * 用户说的「搜关键词出有价值的文献」指的就是这种。
  *
  * **为什么不复用 [RssParser]**：arXiv 的 `<author>` 是

@@ -590,7 +590,7 @@ private fun RelayDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 HintText(
-                    "填 PC 的 IP，例如 192.168.1.20（不带端口按 " +
+                    "填 PC 的 IP，例如 192.168.0.2（不带端口按 " +
                         "${RelayRules.DEFAULT_PORT} 算）。手机要去读它的 feeds.opml，" +
                         "也就是 crawlbase 那边 `harvest serve` 监听的地址 —— " +
                         "得让手机和 PC 在同一个网络里，服务也得监听局域网而不只是 127.0.0.1。",
@@ -607,7 +607,7 @@ private fun RelayDialog(
                     isError = error != null,
                     enabled = !syncing,
                     label = { Text("PC 地址") },
-                    placeholder = { Text("192.168.1.20") },
+                    placeholder = { Text("192.168.0.2") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth(),
                 )

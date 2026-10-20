@@ -38,6 +38,7 @@ class SynonymDict(private val table: Map<String, List<String>>) {
         val DEFAULT: SynonymDict = SynonymDict(
             mapOf(
                 // —— AI ——
+                "ai agent" to listOf("coding agent", "agentic", "tool use", "tool calling", "智能体", "编程助手", "工具调用", "multi-agent"),
                 "ai" to listOf("人工智能", "机器学习", "深度学习", "神经网络", "llm", "大模型", "gpt", "transformer", "推理", "embedding", "agent"),
                 "人工智能" to listOf("ai", "机器学习", "深度学习", "神经网络", "大模型", "llm"),
                 "大模型" to listOf("llm", "gpt", "chatgpt", "transformer", "推理模型", "参数规模", "微调", "fine-tuning", "agent"),
@@ -82,7 +83,7 @@ class SynonymDict(private val table: Map<String, List<String>>) {
                 "民生" to listOf("消费", "物价", "涨价", "通胀", "就业", "收入"),
                 "扩产" to listOf("产能", "供给", "投产", "制造", "生产", "基建"),
 
-                // —— 医药 / 生物 ——（用户追药学 / 病理 / 新药）
+                // —— 医药 / 生物 ——
                 "药" to listOf("pharmacology", "制药", "药物", "新药", "临床", "biotech", "fda"),
                 "药学" to listOf("pharmacology", "制药", "药物", "新药", "临床"),
                 "pharmacology" to listOf("药", "制药", "药物", "新药", "临床", "biotech", "fda", "drug"),
@@ -91,13 +92,13 @@ class SynonymDict(private val table: Map<String, List<String>>) {
                 "临床" to listOf("临床试验", "phase", "新药", "fda", "受试者"),
                 "生物" to listOf("biology", "生物医药", "基因", "细胞", "biotech"),
 
-                // —— 健身 / 肌肥大 ——（用户追增肌 / 力量）
+                // —— 健身 / 力量训练 ——
                 "hypertrophy" to listOf("肌肥大", "增肌", "肌肉", "训练量", "rep range", "strength", "力量"),
                 "肌肥大" to listOf("hypertrophy", "增肌", "肌肉生长", "训练量", "rep range"),
                 "增肌" to listOf("hypertrophy", "肌肥大", "肌肉", "蛋白质", "力量"),
-                "力量训练" to listOf("strength", "肌力", "训练", "rep", "负荷"),
+                "力量训练" to listOf("strength training", "resistance training", "hypertrophy", "肌力", "抗阻训练", "增肌", "渐进负荷"),
 
-                // —— 半导体 / 硬件 ——（用户追 GPU / TSMC / AI 基础设施）
+                // —— 半导体 / 硬件 ——
                 "semiconductor" to listOf("半导体", "芯片", "晶圆", "fab", "tsmc", "gpu", "ai 基础设施"),
                 "半导体" to listOf("semiconductor", "芯片", "晶圆", "fab", "tsmc", "制程"),
                 "芯片" to listOf("semiconductor", "半导体", "gpu", "npu", "制程", "fab"),
@@ -120,6 +121,11 @@ class SynonymDict(private val table: Map<String, List<String>>) {
                 "效率" to listOf("工具", "自动化", "工作流", "快捷键", "笔记"),
                 "工具" to listOf("插件", "脚本", "cli", "自动化", "效率"),
                 "笔记" to listOf("obsidian", "markdown", "知识管理", "双链", "记录"),
+                "个人知识管理" to listOf("obsidian", "知识管理", "anki", "间隔重复", "个人档案", "检索", "笔记"),
+                "音乐创作" to listOf("songwriting", "music production", "synthesizer", "midi", "ableton", "作曲", "编曲", "和声", "歌词", "乐理", "合成器"),
+                "概率统计" to listOf("statistics", "概率", "统计", "贝叶斯", "因果推断", "随机变量"),
+                "生活设计" to listOf("leisure", "autonomy", "生活方式", "居住空间", "闲暇", "自主性", "日常体验"),
+                "个人财务" to listOf("personal finance", "记账", "预算", "现金流", "储蓄"),
             )
         )
     }

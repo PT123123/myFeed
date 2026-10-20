@@ -35,7 +35,9 @@ object OfflinePage {
 
         // 摘要长度的正文要在文末说清楚，否则用户读完两三百字会以为这篇就这么短，
         // 而「看原页」在顶栏上，不会主动回头去找。
-        val notice = if (ReaderRouting.isExcerptOnly(article)) {
+        val notice = if (article.remotePostId != null) {
+            "\n      <div class=\"meta\">正文来自已同步的阅流电脑端内容，保存在本机供离线阅读。</div>"
+        } else if (ReaderRouting.isExcerptOnly(article)) {
             "\n      <div class=\"meta\">以上只是订阅带回来的摘要，整篇在原页 —— 顶栏「看原页」，或从浏览器打开。</div>"
         } else {
             ""

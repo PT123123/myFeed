@@ -12,13 +12,13 @@ import org.junit.Test
  */
 class RelayStatusTest {
 
-    private val base = "http://192.168.1.20:8099"
+    private val base = "http://192.168.0.2:8099"
 
     @Test
     fun `只数这台 PC 带进来的订阅`() {
         val sources = listOf(
-            source("http://192.168.1.20:8099/zhihu-a.xml"),
-            source("http://192.168.1.20:8099/zhihu-b.xml"),
+            source("http://192.168.0.2:8099/zhihu-a.xml"),
+            source("http://192.168.0.2:8099/zhihu-b.xml"),
             source("https://openai.com/blog/rss.xml"),
         )
 
@@ -30,7 +30,7 @@ class RelayStatusTest {
     fun `别的地址上的同源文件不算`() {
         val sources = listOf(
             source("http://192.168.1.21:8099/zhihu-a.xml"),
-            source("http://192.168.1.20:9000/zhihu-a.xml"),
+            source("http://192.168.0.2:9000/zhihu-a.xml"),
         )
 
         assertEquals(0, RelayStatus.endpointCount(base, sources))
@@ -39,15 +39,15 @@ class RelayStatusTest {
     /** 对照：主机写法的大小写和尾斜杠差异都只是写法，数出来的该是同一批。 */
     @Test
     fun `地址写法的差异不影响计数`() {
-        val sources = listOf(source("http://192.168.1.20:8099/zhihu-a.xml"))
+        val sources = listOf(source("http://192.168.0.2:8099/zhihu-a.xml"))
 
-        assertEquals(1, RelayStatus.endpointCount("http://192.168.1.20:8099/", sources))
-        assertEquals(1, RelayStatus.endpointCount("HTTP://192.168.1.20:8099", sources))
+        assertEquals(1, RelayStatus.endpointCount("http://192.168.0.2:8099/", sources))
+        assertEquals(1, RelayStatus.endpointCount("HTTP://192.168.0.2:8099", sources))
     }
 
     @Test
     fun `还没配过地址时不给一个像有数的零`() {
-        assertEquals(0, RelayStatus.endpointCount("", listOf(source("http://192.168.1.20:8099/a.xml"))))
+        assertEquals(0, RelayStatus.endpointCount("", listOf(source("http://192.168.0.2:8099/a.xml"))))
         assertEquals("还没配过 PC 地址", RelayStatus.addressLabel(""))
         assertEquals(base, RelayStatus.addressLabel(base))
     }
@@ -72,8 +72,8 @@ class RelayStatusTest {
     @Test
     fun `每条 relay 源一行，空的那条也在`() {
         val now = 1_700_000_000_000L
-        val a = source("http://192.168.1.20:8099/zhihu-a.xml")
-        val b = source("http://192.168.1.20:8099/zhihu-b.xml")
+        val a = source("http://192.168.0.2:8099/zhihu-a.xml")
+        val b = source("http://192.168.0.2:8099/zhihu-b.xml")
         val other = source("https://www.ruanyifeng.com/blog/atom.xml")
 
         val rows = RelayStatus.feedRows(
@@ -93,7 +93,7 @@ class RelayStatusTest {
     /** 没配过地址时这一节是空的，而不是「一排 0 条」—— 那会让人以为那台机器坏了。 */
     @Test
     fun `没配过地址时不摆一排零`() {
-        val a = source("http://192.168.1.20:8099/zhihu-a.xml")
+        val a = source("http://192.168.0.2:8099/zhihu-a.xml")
 
         assertEquals(
             emptyList<RelayFeedRow>(),

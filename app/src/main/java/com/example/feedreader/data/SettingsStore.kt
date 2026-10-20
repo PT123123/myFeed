@@ -42,7 +42,7 @@ class SettingsStore(context: Context) {
         }
 
     /**
-     * crawlbase relay 的基地址（`http://192.168.1.20:8099`）。空串 = 没配过。
+     * crawlbase relay 的基地址（`http://192.168.0.2:8099`）。空串 = 没配过。
      *
      * 存的是 [RelayRules.normalizeBase] 规整**之后**的值，所以读出来就能直接拼地址，
      * 不用每次再解析一遍、也不用担心界面上显示的和实际用的不是一回事。
@@ -52,6 +52,11 @@ class SettingsStore(context: Context) {
         set(value) {
             prefs.edit().putString(KEY_RELAY_BASE, value).apply()
         }
+
+    /** 阅流电脑端服务基地址。 */
+    var desktopFeedBaseUrl: String
+        get() = prefs.getString(KEY_DESKTOP_FEED_BASE, "").orEmpty()
+        set(value) { prefs.edit().putString(KEY_DESKTOP_FEED_BASE, value.trim().trimEnd('/')).apply() }
 
     /**
      * 命令口配对 token（扫码时从 `myfeed://relay-sync?base=…&tok=…` 带进来）。
@@ -114,6 +119,7 @@ class SettingsStore(context: Context) {
         private const val KEY_RETENTION = "cache_retention_days"
         private const val KEY_MAX_MB = "cache_max_mb"
         private const val KEY_SEARCH_ENGINE = "search_engine"
+        private const val KEY_DESKTOP_FEED_BASE = "desktop_feed_base_url"
         internal const val KEY_RELAY_BASE = "relay_base_url"
         private const val KEY_RELAY_TOKEN = "relay_command_token"
         private const val KEY_RELAY_AUTO = "relay_auto_sync"

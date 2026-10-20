@@ -15,7 +15,7 @@ import org.junit.Test
  */
 class RelayGuidanceTest {
 
-    private val base = "http://192.168.1.20:8099"
+    private val base = "http://192.168.0.2:8099"
 
     private fun failure(host: String, message: String) =
         FeedFailure(source = "知乎 · 源A", message = message, host = host)
@@ -86,7 +86,7 @@ class RelayGuidanceTest {
         assertEquals(RelayIssue.NO_FILE, RelayGuidance.issueFromFetchMessage("HTTP 404"))
         assertEquals(
             RelayIssue.SERVICE_DOWN,
-            RelayGuidance.issueFromFetchMessage("Failed to connect to /192.168.1.20:8099"),
+            RelayGuidance.issueFromFetchMessage("Failed to connect to /192.168.0.2:8099"),
         )
     }
 
@@ -100,7 +100,7 @@ class RelayGuidanceTest {
 
     @Test
     fun `只有失败的那台就是配过的 relay 时才开口`() {
-        val failures = listOf(failure("192.168.1.20:8099", "连接超时"))
+        val failures = listOf(failure("192.168.0.2:8099", "连接超时"))
 
         assertEquals(RelayIssue.UNREACHABLE, RelayGuidance.issueForRelayFailures(failures, base))
         // 同一批失败、但 PC 地址是另一台：那是两件不相干的事
@@ -115,7 +115,7 @@ class RelayGuidanceTest {
     fun `端口不同不算同一台`() {
         assertNull(
             RelayGuidance.issueForRelayFailures(
-                listOf(failure("192.168.1.20:9000", "连接超时")),
+                listOf(failure("192.168.0.2:9000", "连接超时")),
                 base,
             ),
         )
@@ -124,9 +124,9 @@ class RelayGuidanceTest {
     /** 地址大小写与尾斜杠不该让匹配失效（存进偏好的写法不完全可控）。 */
     @Test
     fun `主机的写法差异仍然认得出`() {
-        val failures = listOf(failure("192.168.1.20:8099", "域名解析失败"))
+        val failures = listOf(failure("192.168.0.2:8099", "域名解析失败"))
 
-        assertEquals(RelayIssue.DIFFERENT_NETWORK, RelayGuidance.issueForRelayFailures(failures, "http://192.168.1.20:8099/"))
+        assertEquals(RelayIssue.DIFFERENT_NETWORK, RelayGuidance.issueForRelayFailures(failures, "http://192.168.0.2:8099/"))
     }
 
     /** relay 那批源全挂时，第一台命中的人给提示；后面的原因不同也不影响。 */
@@ -134,7 +134,7 @@ class RelayGuidanceTest {
     fun `一批失败里有多台机器时认第一台 relay`() {
         val failures = listOf(
             failure("openai.com", "连接超时"),
-            failure("192.168.1.20:8099", "HTTP 404"),
+            failure("192.168.0.2:8099", "HTTP 404"),
         )
 
         assertEquals(RelayIssue.NO_FILE, RelayGuidance.issueForRelayFailures(failures, base))

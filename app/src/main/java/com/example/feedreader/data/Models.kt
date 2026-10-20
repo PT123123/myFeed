@@ -25,6 +25,12 @@ data class Article(
     val publishedAt: Long,
     /** 原始日期字符串，作为 [publishedAt] 解析失败时的展示兜底。 */
     val publishedRaw: String = "",
+    /** 电脑端个人 AI Feed 的 Post ID；空表示普通订阅或搜索结果。 */
+    val remotePostId: String? = null,
+    /** AI Feed 服务端给出的内容类型，例如 sourced / original / explore。 */
+    val remoteKind: String = "",
+    /** AI Feed 的策展理由；不与手机端本地兴趣命中理由混为一谈。 */
+    val remoteReason: String = "",
 )
 
 /** 一个 RSS 订阅源。 */
@@ -135,7 +141,7 @@ object FeedSources {
      *
      * ### 第二批实测（2026-09-25 傍晚，补医学 / 健身 / 财经覆盖）
      *
-     * 用户兴趣扩到药学、肌肥大、金融民生后，这几个领域在内置源里是空的，得补。
+     * 补充医学、生物、健身、财经和民生等常见领域的订阅源。
      * 本机家宽 + 浏览器 UA 探过：
      *
      * - **通过的英文源**（200 + `<rss` + items>0 + < 5MB）：Fierce Biotech(25) /
@@ -218,20 +224,27 @@ object FeedSources {
             "热点",
         ),
 
-        // —— 医学 / 生物（2026-09-25 补：用户追药学 / 病理 / 新药）——
+        // —— 医学 / 生物 ——
         // 全是英文权威源：中文医学 RSS 几乎没有能用的。
         FeedSource("fiercebiotech", "Fierce Biotech", "https://www.fiercebiotech.com/rss/xml", "医学"),
         FeedSource("statnews", "STAT News", "https://www.statnews.com/feed/", "医学"),
         FeedSource("sciencedaily_health", "ScienceDaily 医学健康", "https://www.sciencedaily.com/rss/health_medicine.xml", "医学"),
 
-        // —— 健身 / 肌肥大（2026-09-25 补：用户追增肌 / 力量）——
+        // —— 健身 ——
         FeedSource("strongerbyscience", "Stronger By Science", "https://www.strongerbyscience.com/feed/", "健身"),
         FeedSource("fitnessvolt", "Fitness Volt", "https://fitnessvolt.com/feed/", "健身"),
 
-        // —— 财经 / 民生（2026-09-25 补：用户追涨价 / 扩产 / 全球市场）——
+        // —— 财经 / 民生 ——
         // 中文财经 RSS 实测全 404/403，只能用英文源兜底；靠 SynonymDict 的
         // 「金融 / 经济 / 涨价 / 民生 / 扩产」同义词去捞中文语境的文章。
         FeedSource("marketwatch", "MarketWatch", "https://www.marketwatch.com/rss/topstories", "财经"),
+
+        // 2026-10-20: actual RSS probes passed; give non-tech interests a
+        // candidate pool as well as a keyword. Ranking still decides relevance.
+        FeedSource("cdm", "Create Digital Music", "https://cdm.link/feed/", "音乐"),
+        FeedSource("quanta", "Quanta Magazine", "https://www.quantamagazine.org/feed/", "科学"),
+        FeedSource("aeon", "Aeon", "https://aeon.co/feed.rss", "生活与思想"),
+        FeedSource("psyche", "Psyche", "https://psyche.co/feed", "生活与思想"),
 
         // —— 以下是默认不拉的：靠流量和软文变现的媒体号 ——
         FeedSource("ifanr", "爱范儿", "https://www.ifanr.com/feed", "科技", defaultEnabled = false),

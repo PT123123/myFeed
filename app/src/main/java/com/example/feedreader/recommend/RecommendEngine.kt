@@ -158,11 +158,12 @@ class RecommendEngine(
             articles = candidates,
             articleVectors = encoding.vectors,
             now = now,
-            limit = limit,
+            limit = Int.MAX_VALUE,
         )
 
         return RecommendOutcome(
-            articles = ranked,
+            articles = if (interests.any { it.enabled && it.keyword.isNotBlank() })
+                FeedDiversity.arrange(ranked, limit) else ranked.take(limit),
             stats = RecommendStats(
                 candidates = candidates.size,
                 newlyEncoded = encoding.encoded,

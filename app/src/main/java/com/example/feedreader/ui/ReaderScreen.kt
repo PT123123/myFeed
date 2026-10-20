@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.feedreader.data.Article
+import com.example.feedreader.data.DateParser
 import com.example.feedreader.data.ReaderRouting
 import com.example.feedreader.data.WebDarkMode
 import com.example.feedreader.ui.web.DarkPageInjector
@@ -98,7 +99,7 @@ fun ReaderScreen(
     var loadTick by remember { mutableIntStateOf(0) }
     // 换文章要从「只看全文」退回默认路由，否则上一篇点的「看原页」会跟到下一篇
     var wantSite by remember(article.id) { mutableStateOf(false) }
-    val readOffline = ReaderRouting.readOffline(article) && !wantSite
+    val readOffline = (article.remotePostId != null || ReaderRouting.readOffline(article)) && !wantSite
 
     val darkPages = when (darkMode) {
         WebDarkMode.ALWAYS -> true
@@ -199,6 +200,9 @@ fun ReaderScreen(
                             )
                             Text(
                                 text = when {
+                                    article.remotePostId != null && readOffline ->
+                                        "${remoteByline(article)} · ${DateParser.display(article)}"
+                                    article.remotePostId != null -> "原文 · ${hostOf(article.link)}"
                                     !readOffline -> "${article.sourceName} · ${hostOf(article.link)}"
                                     // 摘要长度就说是摘要：让人知道下面这几段不是整篇，原页才是
                                     ReaderRouting.isExcerptOnly(article) ->
@@ -219,7 +223,7 @@ fun ReaderScreen(
                     actions = {
                         // 全文和原页是两种东西：全文能离线读、原页可能要登录才能看评论。
                         // 出口摆在栏上而不是只塞进三点菜单，否则没人找得到。
-                        if (ReaderRouting.readOffline(article)) {
+                        if (article.remotePostId != null || ReaderRouting.readOffline(article)) {
                             TextButton(onClick = { wantSite = !wantSite }) {
                                 Text(if (readOffline) "看原页" else "回到全文")
                             }
@@ -309,6 +313,13 @@ fun ReaderScreen(
             }
         }
     }
+}
+
+private fun remoteByline(article: Article): String = when (article.remoteKind) {
+    "sourced" -> "AI 整理 · ${article.sourceName}"
+    "original" -> "AI 原创"
+    "explore", "exploration" -> "AI 探索"
+    else -> "AI 内容 · ${article.sourceName}"
 }
 
 /**

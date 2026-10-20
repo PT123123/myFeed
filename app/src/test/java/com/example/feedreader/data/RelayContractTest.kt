@@ -18,7 +18,7 @@ import org.kxml2.io.KXmlParser
  */
 class RelayContractTest {
 
-    private val base = "http://192.168.1.20:8099"
+    private val base = "http://192.168.0.2:8099"
 
     private val realOpml: String by lazy {
         RelayContractTest::class.java.getResourceAsStream("/relay/feeds.opml")

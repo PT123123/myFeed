@@ -207,7 +207,7 @@ PC 侧（crawlbase `harvest/`）`run`/`regen` 之后 `out/` 里多三张**静态
 App 侧接两条深链：
 
 ```
-myfeed://relay-sync?base=http%3A%2F%2F192.168.1.20%3A8099     → viewModel.syncFromRelay(base)
+myfeed://relay-sync?base=http%3A%2F%2F<LAN_IP>%3A8099     → viewModel.syncFromRelay(base)
 myfeed://subscribe?url=http%3A%2F%2F…%2Fzhihu-x.xml&title=…   → viewModel.addSource(url, title, "自建")
 ```
 
@@ -296,7 +296,7 @@ crawlbase 侧这次真的跑通了，纠正上文「PC 待办」里的假设：
 - 首轮 `harvest run` 全 21 条报 `TypeError: not enough arguments for format string` —— 这是
   crawlbase 的 bug（`zhihu.py` 的 `_FETCH_JS` 里 `%5B/%2C` 是 URL 编码字面量，用 `%` 格式化却漏了
   转义），与风控无关，已修并加 2 项回归测试；修后重采 **20/21 成功、共 477 条**。
-- `serve --host 192.168.1.20 --port 8099`，平板（同 WiFi，`curl`/`nc` 可用）实测 TCP 通、
+- `serve --host <LAN_IP> --port 8099`，平板（同 WiFi，`curl`/`nc` 可用）实测 TCP 通、
   `feeds.opml` 200。订阅页 `subscribe.html` 出 **22 个二维码**（21 源 + 1 整包）。
 
 ### 仍未闭环（诚实）
@@ -353,7 +353,7 @@ LazyColumn 里五个 `items(...)` 全用裸 `it.id` 当 key，而 `perplexity` �
 - `:app:testDebugUnitTest` **294 项 0 失败**（新增 8：OpmlParser 3 + RelayContract 5），
   `:app:assembleDebug` 成功；APK 升到 versionCode 5 / versionName 1.3.1 并 `adb install -r`
   进平板（`dumpsys package` 确认 `versionName=1.3.1`，数据保留）。
-- relay 服务仍在 `192.168.1.20:8099`，`feeds.opml` 实测 200 / 3837 字节。
+- relay 服务仍在 `<LAN_IP>:8099`，`feeds.opml` 实测 200 / 3837 字节。
 - **要你动手的两件事**：① 打开设置页、滑过「召回通道」和「AI / 全网搜索」两节，看还闪不闪；
   ② 重扫一次整包码。扫完我直接用 `run-as` 读 `myfeed_settings.xml` 和 `files/feed_cache`，
   落没落库不靠界面文案判断。
@@ -380,7 +380,7 @@ WebView 里是登录墙（cookie 在应用自己的沙箱里，拿不到别处�
 ### 二、relay 那台 PC 一关机就是 21 行失败
 
 `FeedRepository.fetchAll` 原本一个源一行，21 条同源（一台 PC）的源失败时把「那台机器不在
-线」埋进刷屏。改成按 **主机 + 失败原因** 收成一行：`知乎 · 源1 等 21 个源（192.168.1.20:8099）· 连接超时`。
+线」埋进刷屏。改成按 **主机 + 失败原因** 收成一行：`知乎 · 源1 等 21 个源（<LAN_IP>:8099）· 连接超时`。
 只按原因合并不行 —— 知乎本机和 openai 都超时是两件不相干的事，混成一条就不知道该去开哪一头。
 
 ### 验证情况
@@ -481,7 +481,7 @@ harvest 那边加一个账号、PC 换一个 IP，手机侧都毫无反应，得
 设备侧先把 `relay_base_url` 用 `run-as` 预置进 prefs —— 这就是「用户确认过一次」的磁盘状态，
 然后启动应用（`am start`）让自动同步自己跑：
 
-- 冷启动日志 `自动同步 http://192.168.1.20:8099：清单 21 条 · 新增 21 · 换地址 0`；
+- 冷启动日志 `自动同步 http://<LAN_IP>:8099：清单 21 条 · 新增 21 · 换地址 0`；
   prefs 里 `custom_sources` 21 条、去重 21，`relay_last_sync_at` 已写。**21 条源第一次真机落库**。
 - 同一轮抓取用上了新那份源：`files/feed_cache` 本轮写入 45 个文件 / 1 671 240 字节，
   拉全量统计 = 46 个缓存文件、**888 篇**（内置 468 + relay 420）、正文超 200 字的 584 篇。
@@ -530,7 +530,7 @@ App 侧行为正确：不写缓存文件、不出空源副本。
 细节、命令表和验证都在 [relay-pc-guidance.md](relay-pc-guidance.md)。这里只记三件和这条链
 直接有关的事实：
 
-- **两侧同时量过一次**（21:4x）：PC 的 serve 在听 `192.168.1.20:8099`，手机 prefs 里
+- **两侧同时量过一次**（21:4x）：PC 的 serve 在听 `<LAN_IP>:8099`，手机 prefs 里
   `relay_base_url` + 21 条 `custom_sources` 都在，设备缓存 46 文件 / 888 篇含全部 21 条 relay 源。
   这条链到这里已经是通的，问题转到了「内容不再变」和「某一条永远 0 条」这两件沉默的事上。
 - **`harvest/state/*.json` 的 `last_run_at` 全在 18:30–18:39** —— 也就是量的时候那台 PC
@@ -568,12 +568,12 @@ App 侧行为正确：不写缓存文件、不出空源副本。
 ## 2026-09-28 追加十：又一句「手机拿不到」，量出来还是通的（1.4.8）
 
 反馈是「电脑端能正常访问那个地址，但手机端貌似拿不到」，附的是「那一页里全是设置，找不到从哪
-里看采到的东西」。两侧再量一遍（09-27 23:2x，他那台平板 ↔ `192.168.1.20:8099`），
+里看采到的东西」。两侧再量一遍（09-27 23:2x，他那台平板 ↔ `<LAN_IP>:8099`），
 **链路这一层没有任何一处坏**：
 
 | 检查 | 结果 |
 | --- | --- |
-| 设备侧网络 | `nc -z 192.168.1.20 8099` 通；`curl feeds.opml` → 200 / 24ms；`curl zhihu-sample-zhi-75-54.xml` → 200 / 58677B |
+| 设备侧网络 | `nc -z <LAN_IP> 8099` 通；`curl feeds.opml` → 200 / 24ms；`curl zhihu-sample-zhi-75-54.xml` → 200 / 58677B |
 | 手机缓存 | 20 个 relay 源文件共 **420 条**知乎回答，写入时间就在量的前几分钟 |
 | PC 侧 | **直接数服务吐出的 XML**（不读本地目录）：`feeds.opml` 21 条 → 合计 **477 个 `<item>`**；超 30 的正好是 4×39 + 3×37，其余 ≤30；`zhihu-sample-bei-jiu.xml` 为 0 |
 
@@ -641,7 +641,7 @@ PC 侧半写状态才造得出来，本机造不出；21 行内容列表在窄�
 
 配对页的深链是 `myfeed://relay-sync?base=<编码过的地址>&tok=<token>`。`base` **必须**百分号编码：
 它是 URL 的 query 值，里面天然带 `://` 和 `:`，而手机那边的解析器（`DeepLink`）是按 `?` / `&` 切
-query 的 —— 不编码就会被切一刀，只剩 `http://192.168.1.20`，端口掉了。**二维码那一层还要再编一次**
+query 的 —— 不编码就会被切一刀，只剩 `http://<LAN_IP>`，端口掉了。**二维码那一层还要再编一次**
 （qrserver 的 `data=` 参数本身是 URL 的一部分，所以是 `%253A` 那种双重编码）。这两处在页面上看着
 都「像是对的」，错的表现在手机上：扫出来是个残缺地址，同步失败，而人只会以为手机坏了。
 
@@ -651,14 +651,14 @@ query 的 —— 不编码就会被切一刀，只剩 `http://192.168.1.20`，�
 
 ### 实测（09-28，全程没点屏幕）
 
-在跑的那台 serve 是 `serve --host 192.168.1.20 --port 8099 --allow-commands`（PID 136332）。
+在跑的那台 serve 是 `serve --host <LAN_IP> --port 8099 --allow-commands`（PID 136332）。
 **绑的是局域网网卡，所以 `127.0.0.1:8099` 连不上** —— 这不是缺陷，但它会让人以为服务死了：
 
 | 探针 | 结果 |
 | --- | --- |
 | `POST /command/plan`（带 token） | **200 / 0.10s**，24 行（含两条 `enabled=false` 的样例源） |
 | `POST /command/plan`（不带 token） | **401** |
-| `GET /pair` | 200；深链 `href="myfeed://relay-sync?base=http%3A%2F%2F192.168.1.20%3A8099&amp;tok=…"`；二维码 `data=` 双重编码；页面三个 `<code>` 是地址、`--allow-commands`、`state/command_token`，**没有 token** |
+| `GET /pair` | 200；深链 `href="myfeed://relay-sync?base=http%3A%2F%2F<LAN_IP>%3A8099&amp;tok=…"`；二维码 `data=` 双重编码；页面三个 `<code>` 是地址、`--allow-commands`、`state/command_token`，**没有 token** |
 | `GET /feeds.opml` | 200（静态那条路一个字没改） |
 
 `202 + 轮询`、`400 BAD_FEED`、`404 BAD_ACTION`、`401` 这四支是在本机另一台试验服务

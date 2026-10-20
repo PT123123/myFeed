@@ -260,11 +260,11 @@ class OpmlParserTest {
               <outline text="绝对" xmlUrl="https://other.example/feed.xml"/>
             </body></opml>
             """.trimIndent(),
-            baseUrl = "http://192.168.1.20:8099",
+            baseUrl = "http://192.168.0.2:8099",
         )
 
         assertEquals(2, sources.size)
-        assertEquals("http://192.168.1.20:8099/zhihu-a.xml", sources[0].url)
+        assertEquals("http://192.168.0.2:8099/zhihu-a.xml", sources[0].url)
         assertEquals("非回环的绝对地址不该被动", "https://other.example/feed.xml", sources[1].url)
     }
 
@@ -292,9 +292,9 @@ class OpmlParserTest {
               <outline text="老导出" xmlUrl="http://127.0.0.1:8099/zhihu-a.xml"/>
             </body></opml>
             """.trimIndent(),
-            baseUrl = "http://192.168.1.20:8099",
+            baseUrl = "http://192.168.0.2:8099",
         )
 
-        assertEquals("http://192.168.1.20:8099/zhihu-a.xml", sources.single().url)
+        assertEquals("http://192.168.0.2:8099/zhihu-a.xml", sources.single().url)
     }
 }

@@ -16,7 +16,7 @@ import org.kxml2.io.KXmlParser
  */
 class RelayAutoSyncTest {
 
-    private val base = "http://192.168.1.20:8099"
+    private val base = "http://192.168.0.2:8099"
     private val now = 1_760_000_000_000L
     private val halfHour = RelayAutoSync.MIN_INTERVAL_MS
 
@@ -109,7 +109,7 @@ class RelayAutoSyncTest {
     @Test
     fun `换端口或带查询串都按文件名识别`() {
         val incoming = listOf(
-            relaySource("zhihu-example.xml", "http://192.168.1.20:9000"),
+            relaySource("zhihu-example.xml", "http://192.168.0.2:9000"),
             FeedSource("q", "查询串", "$base/zhihu-example.xml?ts=2", "知乎", custom = true),
             relaySource("zhihu-sample-oss.xml"),
         )

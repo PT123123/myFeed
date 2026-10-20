@@ -83,6 +83,15 @@ class LexicalScorerTest {
     }
 
     @Test
+    fun curatedPhraseDoesNotExpandIntoGenericPartialWords() {
+        assertEquals(0f, score("AI Agent", "How to choose a travel agent"), 0f)
+        assertEquals(0f, score("AI Agent", "AI image generation gallery"), 0f)
+        assertTrue(score("AI Agent", "Testing tool calling in a coding agent") > .5f)
+        assertEquals(0f, score("力量训练", "员工训练与沟通技巧"), 0f)
+        assertTrue(score("力量训练", "Resistance training and hypertrophy") > .5f)
+    }
+
+    @Test
     fun titleHitBeatsExcerptOnlyHit() {
         val inTitle = score("Rust", "Rust 异步运行时 tokio 发布 1.40 版本")
         val inExcerpt = score("Rust", "每周精选", "本期聊聊 Rust 的所有权模型")
@@ -325,5 +334,49 @@ class RankerTest {
         val first = ranker.rank(listOf(Interest("AI 大模型")), pool, vectorsFor(pool), now = now)
         val second = ranker.rank(listOf(Interest("AI 大模型")), pool, vectorsFor(pool), now = now)
         assertEquals(first.map { it.article.id }, second.map { it.article.id })
+    }
+
+    @Test
+    fun weakSemanticSimilarityDoesNotInventAnInterestMatch() {
+        val item = article("weak", "A generic item")
+        val interestVector = encoder.encode("AI 大模型")
+        val weak = FloatArray(interestVector.size) { interestVector[it] * 0.32f }
+        val result = ranker.rank(listOf(Interest("AI 大模型")), listOf(item),
+            mapOf(item.id to weak), now = now).single()
+        assertTrue(result.topInterest.isEmpty())
+        assertTrue(result.matchedInterests.isEmpty())
+    }
+
+    @Test
+    fun matchedInterestOrderRespectsExplicitWeights() {
+        val item = article("both", "AI 大模型与隐私安全")
+        val result = ranker.rank(listOf(Interest("AI 大模型", .5f), Interest("隐私安全", 2f)),
+            listOf(item), emptyMap(), now = now).single()
+        assertEquals(result.topInterest, result.matchedInterests.first())
+        assertEquals("隐私安全", result.topInterest)
+    }
+
+    @Test
+    fun diversitySpreadsEquallyRelevantSourcesWithoutDroppingCandidates() {
+        val items = (1..6).map { article("a$it", "AI 大模型 $it", source = "a") } +
+            (1..3).map { article("b$it", "AI 大模型 alternate $it", source = "b") }
+        val scored = ranker.rank(listOf(Interest("AI 大模型")), items, emptyMap(), now = now)
+        val arranged = FeedDiversity.arrange(scored)
+        assertEquals(items.size, arranged.size)
+        assertEquals(items.map { it.id }.toSet(), arranged.map { it.article.id }.toSet())
+        assertTrue(arranged.take(3).map { it.article.sourceId }.toSet().size > 1)
+        assertEquals(arranged, FeedDiversity.arrange(scored))
+    }
+
+    @Test
+    fun sourceDiversityCannotPromoteTimeOnlyCandidatesAheadOfRealMatches() {
+        val items = (1..3).map { article("a$it", "AI 大模型 $it", source = "a") } +
+            article("miss", "A totally unrelated item", source = "b")
+        val scored = ranker.rank(listOf(Interest("AI 大模型", .2f), Interest("Unknown topic", 2f)),
+            items, emptyMap(), now = now)
+        val arranged = FeedDiversity.arrange(scored)
+        assertTrue(arranged.take(3).all { it.matchedInterests.isNotEmpty() })
+        assertEquals("miss", arranged.last().article.id)
+        assertEquals(2, FeedDiversity.arrange(scored,2).size)
     }
 }

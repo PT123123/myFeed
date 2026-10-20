@@ -67,6 +67,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     sources: List<FeedSource>,
+    desktopFeedBaseUrl: String,
+    onSetDesktopFeedConnection: (String) -> Unit,
     enabledIds: Set<String>,
     useInAppBrowser: Boolean,
     webDarkMode: WebDarkMode,
@@ -103,6 +105,7 @@ fun SettingsScreen(
     var engineDialog by remember { mutableStateOf(false) }
     var darkDialog by remember { mutableStateOf(false) }
     var addSourceDialog by remember { mutableStateOf(false) }
+    var desktopFeedDialog by remember { mutableStateOf(false) }
     var deleteSource by remember { mutableStateOf<FeedSource?>(null) }
 
     /**
@@ -190,6 +193,16 @@ fun SettingsScreen(
                     title = "从 OPML 导入",
                     subtitle = "从别的阅读器整体搬过来；已经订阅过的会自动跳过",
                 ) { opmlPicker.launch(arrayOf("*/*")) }
+            }
+            item {
+                ActionRow(
+                    title = "连接阅流电脑端",
+                    subtitle = if (desktopFeedBaseUrl.isBlank()) {
+                        "同步电脑端生成的内容；手机与电脑需连接同一 Wi-Fi"
+                    } else {
+                        "$desktopFeedBaseUrl · 下拉刷新同步内容"
+                    },
+                ) { desktopFeedDialog = true }
             }
             items(customSources, key = { "custom-" + it.id }) { source ->
                 SourceRow(
@@ -350,7 +363,7 @@ fun SettingsScreen(
             item {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
-                        text = "MyFeed $version",
+                        text = "${androidx.compose.ui.res.stringResource(com.example.feedreader.R.string.app_name)} $version",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                     )
@@ -430,6 +443,22 @@ fun SettingsScreen(
         )
     }
 
+    if (desktopFeedDialog) {
+        DesktopFeedConnectionDialog(
+            initialBaseUrl = desktopFeedBaseUrl,
+            onSave = { base ->
+                onSetDesktopFeedConnection(base)
+                desktopFeedDialog = false
+                scope.launch {
+                    snackbar.showSnackbar(
+                        if (base.isBlank()) "已断开电脑端连接" else "电脑端连接已保存，正在同步",
+                    )
+                }
+            },
+            onDismiss = { desktopFeedDialog = false },
+        )
+    }
+
     deleteSource?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteSource = null },
@@ -448,6 +477,42 @@ fun SettingsScreen(
             },
         )
     }
+}
+
+@Composable
+private fun DesktopFeedConnectionDialog(
+    initialBaseUrl: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var baseUrl by remember { mutableStateOf(initialBaseUrl) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("连接阅流电脑端") },
+        text = {
+            Column {
+                Text(
+                    "填写电脑端地址（例如 http://192.168.0.2:8000）。电脑和手机需连接同一 Wi-Fi，并在电脑端启用局域网访问。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = { Text("电脑地址") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = baseUrl.isBlank() || baseUrl.startsWith("http://") || baseUrl.startsWith("https://"),
+                onClick = { onSave(baseUrl.trim()) },
+            ) { Text(if (baseUrl.isBlank()) "断开电脑端" else "保存并同步") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 /**

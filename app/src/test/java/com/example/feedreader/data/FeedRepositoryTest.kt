@@ -16,12 +16,12 @@ class FeedRepositoryTest {
 
     @Test
     fun `同一台主机的同一种失败收成一行`() {
-        val rows = (1..21).map { row("知乎 · 源$it", "http://192.168.1.20:8099/zhihu-$it.xml", "连接超时") }
+        val rows = (1..21).map { row("知乎 · 源$it", "http://192.168.0.2:8099/zhihu-$it.xml", "连接超时") }
 
         val failures = FeedRepository.collapseFailures(rows)
 
         assertEquals(1, failures.size)
-        assertEquals("知乎 · 源1 等 21 个源（192.168.1.20:8099）", failures.single().source)
+        assertEquals("知乎 · 源1 等 21 个源（192.168.0.2:8099）", failures.single().source)
         assertEquals("连接超时", failures.single().message)
     }
 
@@ -30,7 +30,7 @@ class FeedRepositoryTest {
     fun `不同主机的同类失败各留一行`() {
         val failures = FeedRepository.collapseFailures(
             listOf(
-                row("知乎 · a", "http://192.168.1.20:8099/a.xml", "连接超时"),
+                row("知乎 · a", "http://192.168.0.2:8099/a.xml", "连接超时"),
                 row("OpenAI Blog", "https://openai.com/blog/rss.xml", "连接超时"),
             ),
         )
@@ -44,8 +44,8 @@ class FeedRepositoryTest {
     fun `同一主机的不同原因各留一行`() {
         val failures = FeedRepository.collapseFailures(
             listOf(
-                row("a", "http://192.168.1.20:8099/a.xml", "连接超时"),
-                row("b", "http://192.168.1.20:8099/b.xml", "不是有效的 XML"),
+                row("a", "http://192.168.0.2:8099/a.xml", "连接超时"),
+                row("b", "http://192.168.0.2:8099/b.xml", "不是有效的 XML"),
             ),
         )
 
@@ -69,12 +69,12 @@ class FeedRepositoryTest {
     fun `每条失败都带上聚合用的主机`() {
         val failures = FeedRepository.collapseFailures(
             listOf(
-                row("知乎 · a", "http://192.168.1.20:8099/a.xml", "连接超时"),
+                row("知乎 · a", "http://192.168.0.2:8099/a.xml", "连接超时"),
                 row("OpenAI Blog", "https://openai.com/blog/rss.xml", "连接超时"),
             ),
         )
 
-        assertEquals(listOf("192.168.1.20:8099", "openai.com"), failures.map { it.host })
+        assertEquals(listOf("192.168.0.2:8099", "openai.com"), failures.map { it.host })
     }
 
     /** 端口和大小写参与主机判定：`:8099` 和 `:80` 是两台机器。 */

@@ -25,16 +25,16 @@ class ScanRulesTest {
     @Test
     fun `myfeed 整包同步深链直接收下`() {
         assertEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099"),
-            link("myfeed://relay-sync?base=http%3A%2F%2F192.168.1.20%3A8099"),
+            DeepLink.RelaySync("http://192.168.0.2:8099"),
+            link("myfeed://relay-sync?base=http%3A%2F%2F192.168.0.2%3A8099"),
         )
     }
 
     @Test
     fun `myfeed 单源深链带着标题`() {
         assertEquals(
-            DeepLink.Subscribe("http://192.168.1.20:8099/zhihu-x.xml", "张三"),
-            link("myfeed://subscribe?url=http%3A%2F%2F192.168.1.20%3A8099%2Fzhihu-x.xml&title=%E5%BC%A0%E4%B8%89"),
+            DeepLink.Subscribe("http://192.168.0.2:8099/zhihu-x.xml", "张三"),
+            link("myfeed://subscribe?url=http%3A%2F%2F192.168.0.2%3A8099%2Fzhihu-x.xml&title=%E5%BC%A0%E4%B8%89"),
         )
     }
 
@@ -43,8 +43,8 @@ class ScanRulesTest {
     @Test
     fun `harvest 真实产出的整包二维码地址`() {
         assertEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099"),
-            link("http://192.168.1.20:8099/go.html?f=__relay__"),
+            DeepLink.RelaySync("http://192.168.0.2:8099"),
+            link("http://192.168.0.2:8099/go.html?f=__relay__"),
         )
     }
 
@@ -52,36 +52,36 @@ class ScanRulesTest {
     fun `harvest 真实产出的单源二维码地址`() {
         // 这一条是从 serve 出来的 go.html 里抄的原文，不是手写样例
         assertEquals(
-            DeepLink.Subscribe("http://192.168.1.20:8099/zhihu-samplehorizon.xml", ""),
-            link("http://192.168.1.20:8099/go.html?f=zhihu-samplehorizon"),
+            DeepLink.Subscribe("http://192.168.0.2:8099/zhihu-samplehorizon.xml", ""),
+            link("http://192.168.0.2:8099/go.html?f=zhihu-samplehorizon"),
         )
     }
 
     @Test
     fun `桥接页不带 f 时按整包算`() {
         assertEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099"),
-            link("http://192.168.1.20:8099/go.html"),
+            DeepLink.RelaySync("http://192.168.0.2:8099"),
+            link("http://192.168.0.2:8099/go.html"),
         )
         assertEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099"),
-            link("http://192.168.1.20:8099/go.html?f="),
+            DeepLink.RelaySync("http://192.168.0.2:8099"),
+            link("http://192.168.0.2:8099/go.html?f="),
         )
     }
 
     @Test
     fun `非默认端口跟着走`() {
         assertEquals(
-            DeepLink.Subscribe("http://192.168.1.20:9000/zhihu-x.xml", ""),
-            link("http://192.168.1.20:9000/go.html?f=zhihu-x"),
+            DeepLink.Subscribe("http://192.168.0.2:9000/zhihu-x.xml", ""),
+            link("http://192.168.0.2:9000/go.html?f=zhihu-x"),
         )
     }
 
     @Test
     fun `扫到清单本身也算整包`() {
         assertEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099"),
-            link("http://192.168.1.20:8099/feeds.opml"),
+            DeepLink.RelaySync("http://192.168.0.2:8099"),
+            link("http://192.168.0.2:8099/feeds.opml"),
         )
     }
 
@@ -102,33 +102,33 @@ class ScanRulesTest {
         assertTrue("实际：$reason", "host auto" in reason)
         // 控制组：同一张码换个主机就必须是正常订阅，否则上面两条断言恒真
         assertNotEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099"),
-            link("http://192.168.1.20:8099/go.html?f=zhihu-x"),
+            DeepLink.RelaySync("http://192.168.0.2:8099"),
+            link("http://192.168.0.2:8099/go.html?f=zhihu-x"),
         )
     }
 
     @Test
     fun `畸形 feed id 不拼进地址`() {
         for (bad in listOf("../../etc/passwd", "a/b", "a?x=1", "a#b", "a b", "a\"b")) {
-            assertTrue("$bad 应被拒", ScanRules.classify("http://192.168.1.20:8099/go.html?f=$bad")
+            assertTrue("$bad 应被拒", ScanRules.classify("http://192.168.0.2:8099/go.html?f=$bad")
                 is ScanRules.Outcome.Rejected)
         }
         // 控制组：合法 id 里带点和连字符仍然要过，否则上面那串是一概拒绝
         assertEquals(
-            DeepLink.Subscribe("http://192.168.1.20:8099/zhihu-53-34.1.xml", ""),
-            link("http://192.168.1.20:8099/go.html?f=zhihu-53-34.1"),
+            DeepLink.Subscribe("http://192.168.0.2:8099/zhihu-53-34.1.xml", ""),
+            link("http://192.168.0.2:8099/go.html?f=zhihu-53-34.1"),
         )
     }
 
     @Test
     fun `过长的 id 拒绝`() {
         val long = "z" + "a".repeat(ScanRules.MAX_FEED_ID)
-        assertTrue(rejectReason("http://192.168.1.20:8099/go.html?f=$long").isNotBlank())
+        assertTrue(rejectReason("http://192.168.0.2:8099/go.html?f=$long").isNotBlank())
     }
 
     @Test
     fun `不是地址的东西一律拒`() {
-        for (raw in listOf("", "   ", null, "hello world", "WIFI:S:x;;", "ftp://192.168.1.20/x")) {
+        for (raw in listOf("", "   ", null, "hello world", "WIFI:S:x;;", "ftp://192.168.0.2/x")) {
             assertTrue("$raw 应被拒", ScanRules.classify(raw) is ScanRules.Outcome.Rejected)
         }
     }
@@ -136,8 +136,8 @@ class ScanRulesTest {
     @Test
     fun `空白与大小写不影响识别`() {
         assertEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099"),
-            link("  HTTP://192.168.1.20:8099/go.html?f=__relay__ "),
+            DeepLink.RelaySync("http://192.168.0.2:8099"),
+            link("  HTTP://192.168.0.2:8099/go.html?f=__relay__ "),
         )
     }
 }

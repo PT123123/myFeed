@@ -164,7 +164,7 @@ class SourceRulesTest {
      */
     @Test
     fun `没配过分类的 relay 源归电脑端采集`() {
-        val base = "http://192.168.1.20:8099"
+        val base = "http://192.168.0.2:8099"
 
         assertEquals(
             SourceRules.RELAY_CATEGORY,
@@ -173,14 +173,14 @@ class SourceRulesTest {
         // 换过 IP 之后地址会跟着同步改掉，判据是主机而不是文件名
         assertEquals(
             SourceRules.RELAY_CATEGORY,
-            SourceRules.categoryFor(SourceRules.FALLBACK_CATEGORY, "$base/zhihu-a.xml", "http://192.168.1.20:8099/"),
+            SourceRules.categoryFor(SourceRules.FALLBACK_CATEGORY, "$base/zhihu-a.xml", "http://192.168.0.2:8099/"),
         )
     }
 
     /** 三条「不该动」的情况：别的机器、用户自己写过的分类、还没配过地址。 */
     @Test
     fun `categoryFor 只兜那个默认值`() {
-        val base = "http://192.168.1.20:8099"
+        val base = "http://192.168.0.2:8099"
 
         assertEquals(
             SourceRules.FALLBACK_CATEGORY,

@@ -78,8 +78,7 @@ class InterestsTest {
             defaults.filter { it.enabled }.size,
             defaults.filter { it.enabled }.map { it.id }.distinct().size,
         )
-        // 新旧默认必须不同，否则 InterestStore 的迁移判断（是否还停在旧默认）会永远为真
-        assertNotEquals("新旧默认不能相同", Interests.OLD_DEFAULT, defaults)
+        assertTrue(defaults.any { it.keyword == "科技" })
     }
 
     // ------------------------------------------------------------------ 添加校验
@@ -202,6 +201,12 @@ class InterestCodecTest {
 }
 
 class SynonymDictTest {
+    @Test
+    fun defaultMigrationPreservesCustomListsAndIntentionalEmptyLists() {
+        val custom = listOf(Interest("摄影", 1.5f), Interest("植物", .5f, enabled = false))
+        assertEquals(custom, Interests.migrateDefaults(custom))
+        assertTrue(Interests.migrateDefaults(emptyList()).isEmpty())
+    }
 
     private val dict = SynonymDict.DEFAULT
 

@@ -51,7 +51,10 @@ data class RecallQuery(
 
             val self = SynonymDict.normalize(trimmed)
             val expanded = LinkedHashSet<String>()
-            for (part in LexicalScorer.splitTerms(trimmed)) {
+            val parts = LexicalScorer.splitTerms(trimmed)
+            val phrase = parts.joinToString(" ")
+            val expansionKeys = if (synonyms.expand(phrase).isNotEmpty()) listOf(phrase) else parts
+            for (part in expansionKeys) {
                 for (candidate in synonyms.expand(part)) {
                     val normalized = SynonymDict.normalize(candidate)
                     // 扩出来的词里可能就有原词本身（比如 "ai" 展开含 "ai" 的近义写法），剔掉

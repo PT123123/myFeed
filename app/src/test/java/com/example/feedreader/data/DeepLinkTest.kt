@@ -18,8 +18,8 @@ class DeepLinkTest {
     @Test
     fun `relay 深链带完整编码地址`() {
         assertEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099"),
-            DeepLink.parse("myfeed://relay-sync?base=http%3A%2F%2F192.168.1.20%3A8099"),
+            DeepLink.RelaySync("http://192.168.0.2:8099"),
+            DeepLink.parse("myfeed://relay-sync?base=http%3A%2F%2F192.168.0.2%3A8099"),
         )
     }
 
@@ -28,8 +28,8 @@ class DeepLinkTest {
         // 编码是 go.html 用 encodeURIComponent 做的，但用户手敲/别的生成器未必编码，
         // 未编码时值里本来就只有一个 ':'，直接原样交出去即可（normalizeBase 自己会判）
         assertEquals(
-            DeepLink.RelaySync("192.168.1.20:8099"),
-            DeepLink.parse("myfeed://relay-sync?base=192.168.1.20:8099"),
+            DeepLink.RelaySync("192.168.0.2:8099"),
+            DeepLink.parse("myfeed://relay-sync?base=192.168.0.2:8099"),
         )
     }
 
@@ -51,8 +51,8 @@ class DeepLinkTest {
     @Test
     fun `配对码带着 token`() {
         assertEquals(
-            DeepLink.RelaySync("http://192.168.1.20:8099", "pair-token-example"),
-            DeepLink.parse("myfeed://relay-sync?base=http%3A%2F%2F192.168.1.20%3A8099&tok=pair-token-example"),
+            DeepLink.RelaySync("http://192.168.0.2:8099", "pair-token-example"),
+            DeepLink.parse("myfeed://relay-sync?base=http%3A%2F%2F192.168.0.2%3A8099&tok=pair-token-example"),
         )
     }
 
@@ -107,11 +107,11 @@ class DeepLinkTest {
     @Test
     fun `订阅深链拆出地址与中文标题`() {
         val link = DeepLink.parse(
-            "myfeed://subscribe?url=http%3A%2F%2F192.168.1.20%3A8099%2Fzhihu-demo-user.xml" +
+            "myfeed://subscribe?url=http%3A%2F%2F192.168.0.2%3A8099%2Fzhihu-demo-user.xml" +
                 "&title=%E7%9F%A5%E4%B9%8E%20%C2%B7%20%E7%A4%BA%E4%BE%8B%E7%94%A8%E6%88%B7",
         )
         assertEquals(
-            DeepLink.Subscribe("http://192.168.1.20:8099/zhihu-demo-user.xml", "知乎 · 示例用户"),
+            DeepLink.Subscribe("http://192.168.0.2:8099/zhihu-demo-user.xml", "知乎 · 示例用户"),
             link,
         )
     }
@@ -120,8 +120,8 @@ class DeepLinkTest {
     fun `没有 title 时是空串而不是 null`() {
         // addSource 用空串走「退回探测到的频道标题」那条既有逻辑
         assertEquals(
-            DeepLink.Subscribe("http://192.168.1.20:8099/a.xml", ""),
-            DeepLink.parse("myfeed://subscribe?url=http%3A%2F%2F192.168.1.20%3A8099%2Fa.xml"),
+            DeepLink.Subscribe("http://192.168.0.2:8099/a.xml", ""),
+            DeepLink.parse("myfeed://subscribe?url=http%3A%2F%2F192.168.0.2%3A8099%2Fa.xml"),
         )
     }
 
@@ -137,7 +137,7 @@ class DeepLinkTest {
 
     @Test
     fun `不是 myfeed 协议的一律忽略`() {
-        assertNull(DeepLink.parse("http://192.168.1.20:8099/feeds.opml"))
+        assertNull(DeepLink.parse("http://192.168.0.2:8099/feeds.opml"))
         assertNull(DeepLink.parse("myfeeds://relay-sync?base=x"))
         assertNull(DeepLink.parse(""))
         assertNull(DeepLink.parse(null))

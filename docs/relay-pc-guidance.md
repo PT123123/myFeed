@@ -15,8 +15,8 @@ relay 这条链的故障**没有一种是手机上能修的** —— 服务没�
 
 | 检查 | 结果 |
 | --- | --- |
-| PC `serve` | 在听 `192.168.1.20:8099`，`feeds.opml` 与 `subscribe.html` 都 200 |
-| 手机 prefs | `relay_base_url = http://192.168.1.20:8099`、`custom_sources` 21 条、`relay_last_sync_at` 已写 |
+| PC `serve` | 在听 `<LAN_IP>:8099`，`feeds.opml` 与 `subscribe.html` 都 200 |
+| 手机 prefs | `relay_base_url = http://<LAN_IP>:8099`、`custom_sources` 21 条、`relay_last_sync_at` 已写 |
 | 设备缓存 | 46 个文件 / 888 篇，其中 relay 那 21 源全在里面（`tools/body_coverage.py`） |
 | 登录态 | `harvest check`：知乎 21 条 + 小红书示例 `logged_in=true`；**twitter 三条示例全是 `logged_in=false`**（配置里 `enabled=false`，所以不影响） |
 | 采集时刻 | `harvest/state/*.json` 的 `last_run_at` 都在 18:30–18:39 —— 量到这一步才知道内容已经三小时没动过 |
@@ -95,7 +95,7 @@ relay 这条链的故障**没有一种是手机上能修的** —— 服务没�
   `classes4.dex`（抽屉那一项）和 `classes6.dex`（页面标题），`上次读到清单`、
   `这份清单管不到什么`、`复制这一页的全部命令`、`刷新时自动同步` 都在 `classes6.dex`；
   **`兴趣与设置` 在整个包里已经查不到**（撤掉的正是这个说法）。设备上 `relay_base_url` =
-  `http://192.168.1.20:8099`、21 条 `zhihu-*.xml` 源、`relay_last_sync_at` 升级后都还在原位 ——
+  `http://<LAN_IP>:8099`、21 条 `zhihu-*.xml` 源、`relay_last_sync_at` 升级后都还在原位 ——
   也就是说那一页的三行状态在真机上会显示「地址在 / 21 条 / 上次读到清单：几分钟前」。
 - **仍没人眼看过**（要你回来点一下）：新页的排版 —— 状态三行的对齐、清单里命令块在窄屏上会不会
   溢出、「复制这一页的全部命令」按下去的反馈、抽屉里四件事（全部文章 / 兴趣 / 电脑端采集 / 设置）
@@ -186,7 +186,7 @@ relay 这条链的故障**没有一种是手机上能修的** —— 服务没�
 - `:app:assembleDebug` + `adb install -r`：versionCode **16** / **1.4.9**，冷启动 crash buffer 空。
   包内字符串：`让手机能叫电脑现采`、`--allow-commands`、`command_token`、`127.0.0.1:8099/pair`、
   `这台电脑只出静态 RSS，命令口没开` 全在 `classes6.dex`。
-- 真机偏好读出来是 `relay_base_url=http://192.168.1.20:8099` 而**没有** `relay_command_token`
+- 真机偏好读出来是 `relay_base_url=http://<LAN_IP>:8099` 而**没有** `relay_command_token`
   （`shared_prefs/myfeed_settings.xml`）—— 也就是配对还没做，这一节当前会显示成「命令口没开」那副样子。
 - **仍没人眼看过**：六段清单在窄屏的排版、四个按钮按下去的转圈与结论行、选源对话框（21 行 +
   `verticalScroll`）。按约定不做屏幕自动化，要他手动看一眼。

@@ -118,7 +118,13 @@ class Ranker(
                 }
                 val lexical = lexicalScorer.score(profile.terms, titleLower, excerptLower)
 
-                val relevance = weights.semantic * semantic + weights.lexical * lexical
+                // Generic embedding similarity is not evidence of an interest
+                // match. Keep time-only candidates available for source browsing,
+                // but never attribute them to a topic the reader did not match.
+                val matches = semantic >= MATCH_SEMANTIC_FLOOR || lexical >= MATCH_LEXICAL_FLOOR
+                val relevance = if (matches) {
+                    weights.semantic * semantic.coerceAtLeast(0f) + weights.lexical * lexical
+                } else 0f
                 // 兴趣权重只缩放「这条兴趣和这篇文章有多相关」，**不缩放时间项** ——
                 // 时间是文章自身的属性，跟用户有多在意某个兴趣无关。
                 // 取「加权后的最大相关度」，而不是把语义项和词法项各自取最大再相加：
@@ -131,8 +137,8 @@ class Ranker(
                     bestLexical = lexical
                     topInterest = profile.keyword
                 }
-                if (semantic >= MATCH_SEMANTIC_FLOOR || lexical > 0f) {
-                    matched += profile.keyword to relevance
+                if (matches) {
+                    matched += profile.keyword to weighted
                 }
             }
 
@@ -186,7 +192,7 @@ class Ranker(
         return active.map { interest ->
             val base = interestVector(interest.keyword)
             val centroid = feedback[interest.id]
-            val blended = if (centroid == null || feedbackStrength <= 0f) {
+            val blended = if (centroid == null || centroid.size != base.size || feedbackStrength <= 0f) {
                 base
             } else {
                 // Rocchio 式加权：向量重心往用户点击过的方向偏
@@ -218,7 +224,8 @@ class Ranker(
         private const val NEUTRAL_RECENCY = 0.5f
 
         /** 语义余弦超过这个值才算「命中」，用于生成推荐理由。 */
-        private const val MATCH_SEMANTIC_FLOOR = 0.28f
+        internal const val MATCH_SEMANTIC_FLOOR = 0.45f
+        internal const val MATCH_LEXICAL_FLOOR = 0.30f
     }
 }
 
@@ -263,13 +270,19 @@ class LexicalScorer(private val synonyms: SynonymDict) {
 
         val expanded = ArrayList<String>(8)
         val seen = HashSet<String>(16)
-        for (part in parts) {
+        val phrase = parts.joinToString(" ")
+        val phraseExpansion = synonyms.expand(phrase)
+        // A curated phrase such as AI Agent must not collapse to all AI or
+        // the generic word 'agent' (travel/estate agents are not coding agents).
+        val expansionKeys = if (phraseExpansion.isNotEmpty()) listOf(phrase) else parts
+        for (part in expansionKeys) {
             for (candidate in synonyms.expand(part)) {
                 val normalized = SynonymDict.normalize(candidate)
                 if (normalized.isNotEmpty() && seen.add(normalized)) expanded += normalized
             }
         }
-        return Terms(phrase = parts.joinToString(" "), parts = parts, expanded = expanded)
+        return Terms(phrase = phrase, parts = if (phraseExpansion.isNotEmpty() && parts.size > 1) emptyList() else parts,
+            expanded = expanded)
     }
 
     fun score(terms: Terms, titleLower: String, excerptLower: String): Float {

@@ -18,18 +18,18 @@ class RelayRulesTest {
 
     @Test
     fun `只填 IP 时补上 http 和默认端口`() {
-        assertEquals("http://192.168.1.20:8099", RelayRules.normalizeBase("192.168.1.20"))
-        assertEquals("http://192.168.1.20:8099", RelayRules.normalizeBase("  192.168.1.20  "))
+        assertEquals("http://192.168.0.2:8099", RelayRules.normalizeBase("192.168.0.2"))
+        assertEquals("http://192.168.0.2:8099", RelayRules.normalizeBase("  192.168.0.2  "))
         assertEquals("http://localhost:8099", RelayRules.normalizeBase("localhost"))
     }
 
     @Test
     fun `接受从浏览器地址栏直接复制的那串`() {
-        val expected = "http://192.168.1.20:8099"
-        assertEquals(expected, RelayRules.normalizeBase("192.168.1.20:8099"))
-        assertEquals(expected, RelayRules.normalizeBase("http://192.168.1.20:8099"))
-        assertEquals(expected, RelayRules.normalizeBase("http://192.168.1.20:8099/"))
-        assertEquals(expected, RelayRules.normalizeBase("http://192.168.1.20:8099/feeds.opml"))
+        val expected = "http://192.168.0.2:8099"
+        assertEquals(expected, RelayRules.normalizeBase("192.168.0.2:8099"))
+        assertEquals(expected, RelayRules.normalizeBase("http://192.168.0.2:8099"))
+        assertEquals(expected, RelayRules.normalizeBase("http://192.168.0.2:8099/"))
+        assertEquals(expected, RelayRules.normalizeBase("http://192.168.0.2:8099/feeds.opml"))
         // 主机名同理：mDNS 名是局域网里第二常见的写法
         assertEquals("http://relay-host:8099", RelayRules.normalizeBase("relay-host"))
     }
@@ -37,7 +37,7 @@ class RelayRulesTest {
     @Test
     fun `自己带了协议和端口就照搬`() {
         assertEquals("https://feed.example.com:8443", RelayRules.normalizeBase("https://feed.example.com:8443/x"))
-        assertEquals("http://192.168.1.20:9000", RelayRules.normalizeBase("http://192.168.1.20:9000"))
+        assertEquals("http://192.168.0.2:9000", RelayRules.normalizeBase("http://192.168.0.2:9000"))
     }
 
     @Test
@@ -52,9 +52,9 @@ class RelayRulesTest {
         assertNull(RelayRules.normalizeBase("   "))
         assertNull(RelayRules.normalizeBase("not a host"))
         assertNull(RelayRules.normalizeBase("a"))
-        assertNull(RelayRules.normalizeBase("192.168.1.20:99999"))
-        assertNull(RelayRules.normalizeBase("192.168.1.20:abc"))
-        assertNull(RelayRules.normalizeBase("ftp://192.168.1.20"))
+        assertNull(RelayRules.normalizeBase("192.168.0.2:99999"))
+        assertNull(RelayRules.normalizeBase("192.168.0.2:abc"))
+        assertNull(RelayRules.normalizeBase("ftp://192.168.0.2"))
         assertNull(RelayRules.normalizeBase("[::1"))
         // 不带方括号的 IPv6 没法和「host:port」区分，只能拒 —— 界面会告诉用户怎么改
         assertNull(RelayRules.normalizeBase("fe80::1"))
@@ -63,8 +63,8 @@ class RelayRulesTest {
     @Test
     fun `清单地址挂在基地址下面`() {
         assertEquals(
-            "http://192.168.1.20:8099/feeds.opml",
-            RelayRules.opmlUrl("http://192.168.1.20:8099"),
+            "http://192.168.0.2:8099/feeds.opml",
+            RelayRules.opmlUrl("http://192.168.0.2:8099"),
         )
     }
 
@@ -72,7 +72,7 @@ class RelayRulesTest {
 
     @Test
     fun `回环地址换成本机可达的基地址`() {
-        val base = "http://192.168.1.20:8099"
+        val base = "http://192.168.0.2:8099"
         assertEquals("$base/zhihu-example.xml", RelayRules.rebaseUrl("http://127.0.0.1:8099/zhihu-example.xml", base))
         assertEquals("$base/zhihu.xml", RelayRules.rebaseUrl("http://localhost:8099/zhihu.xml", base))
         assertEquals("$base/zhihu.xml", RelayRules.rebaseUrl("http://0.0.0.0:8099/zhihu.xml", base))
@@ -83,7 +83,7 @@ class RelayRulesTest {
 
     @Test
     fun `相对写法补上基地址`() {
-        val base = "http://192.168.1.20:8099"
+        val base = "http://192.168.0.2:8099"
         assertEquals("$base/xhs.xml", RelayRules.rebaseUrl("xhs.xml", base))
         assertEquals("$base/xhs.xml", RelayRules.rebaseUrl("/xhs.xml", base))
         assertEquals("$base/xhs.xml", RelayRules.rebaseUrl("xhs.xml", "$base/"))
@@ -92,7 +92,7 @@ class RelayRulesTest {
 
     @Test
     fun `非回环的绝对地址不动`() {
-        val base = "http://192.168.1.20:8099"
+        val base = "http://192.168.0.2:8099"
         // 用户自己改了 harvest 的 base，或者 OPML 是从别处导来的 —— 那是对的，不该动
         assertEquals(
             "https://feeds.example.com/zhihu.xml",
@@ -102,7 +102,7 @@ class RelayRulesTest {
 
     @Test
     fun `重基之后 id 跟着地址走`() {
-        val base = "http://192.168.1.20:8099"
+        val base = "http://192.168.0.2:8099"
         val incoming = RelayRules.rebaseSources(
             listOf(
                 FeedSource(id = "stale", name = "知乎 · 示例亥", url = "http://127.0.0.1:8099/zhihu.xml", category = "热点"),
@@ -124,10 +124,10 @@ class RelayRulesTest {
             FeedSource(id = "a", name = "坏", url = "", category = ""),
             FeedSource(id = "b", name = "好", url = "http://127.0.0.1:8099/ok.xml", category = ""),
         )
-        val rebased = RelayRules.rebaseSources(incoming, "http://192.168.1.20:8099")
+        val rebased = RelayRules.rebaseSources(incoming, "http://192.168.0.2:8099")
 
         assertEquals(1, rebased.size)
-        assertEquals("http://192.168.1.20:8099/ok.xml", rebased.first().url)
+        assertEquals("http://192.168.0.2:8099/ok.xml", rebased.first().url)
         assertEquals("好", rebased.first().name)
     }
 
@@ -136,10 +136,10 @@ class RelayRulesTest {
     @Test
     fun `文件名是跨地址的身份`() {
         assertEquals("zhihu.xml", RelayRules.endpointOf("http://127.0.0.1:8099/zhihu.xml"))
-        assertEquals("zhihu.xml", RelayRules.endpointOf("http://192.168.1.20:8099/zhihu.xml"))
+        assertEquals("zhihu.xml", RelayRules.endpointOf("http://192.168.0.2:8099/zhihu.xml"))
         assertEquals("zhihu.xml", RelayRules.endpointOf("http://h:8099/zhihu.xml?t=1"))
-        assertNull(RelayRules.endpointOf("http://192.168.1.20:8099"))
-        assertNull(RelayRules.endpointOf("http://192.168.1.20:8099/"))
+        assertNull(RelayRules.endpointOf("http://192.168.0.2:8099"))
+        assertNull(RelayRules.endpointOf("http://192.168.0.2:8099/"))
     }
 
     // ------------------------------------------------- 真实导出样本（端到端一条）
@@ -158,14 +158,14 @@ class RelayRulesTest {
 
     @Test
     fun `解析 harvest 的清单并整份落到 PC 地址上`() {
-        val base = RelayRules.normalizeBase("192.168.1.20")!!
+        val base = RelayRules.normalizeBase("192.168.0.2")!!
         val parsed = OpmlParser { KXmlParser() }.parse(harvestOpml)
         val sources = RelayRules.rebaseSources(parsed, base)
 
         assertEquals(
             listOf(
-                "http://192.168.1.20:8099/zhihu-sample-k.xml",
-                "http://192.168.1.20:8099/zhihu-sample-h.xml",
+                "http://192.168.0.2:8099/zhihu-sample-k.xml",
+                "http://192.168.0.2:8099/zhihu-sample-h.xml",
             ),
             sources.map { it.url },
         )

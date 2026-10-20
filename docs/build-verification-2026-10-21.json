@@ -1,0 +1,17 @@
+{
+  "verifiedAt": "2026-10-21T02:31:26.3570883+08:00",
+  "version": "1.5.1",
+  "versionCode": 18,
+  "appTests": 442,
+  "semanticTests": 59,
+  "failures": 0,
+  "errors": 0,
+  "command": "gradlew :app:testDebugUnitTest :app:assembleDebug :semantic:testDebugUnitTest --console=plain",
+  "build": "passed",
+  "deviceInstallation": "not run - no connected Android device",
+  "artifact": {
+    "path": "app/build/outputs/apk/debug/app-debug.apk",
+    "bytes": 23659366,
+    "sha256": "B844C1D76E9F01EB78DBA83131C6E396F545ECFD2E5C968F322D743B453B07EC"
+  }
+}

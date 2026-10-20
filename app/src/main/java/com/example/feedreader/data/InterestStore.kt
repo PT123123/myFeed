@@ -60,7 +60,7 @@ class InterestStore(context: Context) {
             null
         }
 
-        if (current != null && current == Interests.OLD_DEFAULT) {
+        if (current != null && Interests.migrateDefaults(current) != current) {
             prefs.edit()
                 .putString(KEY_INTERESTS, InterestCodec.encode(Interests.DEFAULT))
                 .apply()
@@ -142,7 +142,7 @@ class InterestStore(context: Context) {
         private const val CHANNEL_DEFAULTS_VERSION = 1
 
         /** 出厂默认兴趣的版本号。**改 [Interests.DEFAULT] 就要加一**，否则改动对停在旧默认的用户无效（见 [migrateInterestDefaults]）。 */
-        private const val INTERESTS_DEFAULTS_VERSION = 1
+        private const val INTERESTS_DEFAULTS_VERSION = 2
 
         private const val FILE = "myfeed_interests"
         private const val KEY_INTERESTS = "interest_list"
