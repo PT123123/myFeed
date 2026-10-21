@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+/*
+ * docs/08 §1: three columns from 1200px, not Tailwind's 1280px `xl`.
+ * `three-col:` is the only width variant the shell uses for the right rail.
+ */
+@theme {
+  --breakpoint-three-col: 1200px;
+  /* 页面内部再左右分栏要等到主列真有 ~960px 可用（左右侧栏各占 224/256）。 */
+  --breakpoint-split: 1440px;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --paf-bg: #f7f7f8;
+  --paf-surface: #ffffff;
+  --paf-border: #e4e4e7;
+  --paf-text: #18181b;
+  --paf-muted: #71717a;
+  --paf-accent: #4f46e5;
+  /* 右栏主视觉卡：上端取主题色暗调，下端收进深蓝青 */
+  --paf-hero-from: #4338ca;
+  --paf-hero-to: #0a2442;
+  /* set by useKeyboardInset(); fixed chrome adds this to stay above the IME */
+  --paf-keyboard-inset: 0px;
+}
+
+.dark {
+  --paf-bg: #0e0e11;
+  --paf-surface: #18181b;
+  --paf-border: #2a2a30;
+  --paf-text: #ececee;
+  --paf-muted: #a1a1aa;
+  --paf-accent: #818cf8;
+  --paf-hero-from: #312e81;
+  --paf-hero-to: #08192e;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paf-bg);
+  color: var(--paf-text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .paf-card {
+    @apply rounded-xl border border-[var(--paf-border)] bg-[var(--paf-surface)] p-4;
+  }
+  .paf-btn {
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2.5 text-sm text-[var(--paf-muted)] transition-colors hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--paf-accent)] dark:hover:bg-white/10;
+  }
+  .paf-btn-active {
+    @apply text-[var(--paf-accent)];
+  }
+  .paf-chip {
+    @apply inline-flex items-center rounded-full border border-[var(--paf-border)] px-2 py-0.5 text-xs text-[var(--paf-muted)];
+  }
+  /* Card meta runs to nine chips at once; the tight variant keeps that row on one line. */
+  .paf-chip-tight {
+    @apply inline-flex items-center rounded-full border border-[var(--paf-border)] px-1.5 py-px text-[11px] leading-4 text-[var(--paf-muted)];
+  }
+  /* Secondary actions lose their label but keep the 44px touch target. */
+  .paf-icon-btn {
+    @apply inline-flex size-11 items-center justify-center rounded-lg text-[var(--paf-muted)] transition-colors hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--paf-accent)] dark:hover:bg-white/10;
+  }
+  .paf-input {
+    @apply w-full rounded-lg border border-[var(--paf-border)] bg-[var(--paf-surface)] px-3 py-2 text-sm text-[var(--paf-text)] outline-none focus:border-[var(--paf-accent)];
+  }
+  .paf-nav-item {
+    @apply flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm text-[var(--paf-muted)] transition-colors hover:bg-black/5 dark:hover:bg-white/10;
+  }
+  .paf-nav-item-active {
+    @apply bg-black/5 font-medium text-[var(--paf-text)] dark:bg-white/10;
+  }
+  /* 推特式时间线顶栏：筛选是一排带下划线的 tab，不是一堆药丸。 */
+  .paf-tab {
+    @apply inline-flex min-h-11 items-center border-b-2 border-transparent px-3 text-sm text-[var(--paf-muted)] transition-colors hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--paf-accent)] dark:hover:bg-white/10;
+  }
+  .paf-tab-active {
+    @apply border-[var(--paf-accent)] font-semibold text-[var(--paf-text)];
+  }
+  /* 右栏主视觉：渐变底 + 一层柔光，白字直接压在渐变上。 */
+  .paf-hero {
+    @apply relative isolate overflow-hidden rounded-xl px-4 py-3 text-white;
+    background-image: linear-gradient(160deg, var(--paf-hero-from) 0%, var(--paf-hero-to) 100%);
+  }
+  .paf-hero::after {
+    @apply pointer-events-none absolute -top-1/3 -right-1/4 size-[160%] opacity-40;
+    content: '';
+    background-image: radial-gradient(closest-side, rgb(255 255 255 / 0.28), transparent 70%);
+  }
+  .paf-prose {
+    @apply text-[15px] leading-7 whitespace-pre-wrap break-words;
+  }
+  .paf-section-title {
+    @apply text-xs font-semibold tracking-wide text-[var(--paf-muted)] uppercase;
+  }
+}
+
+/* Native chrome (B07): notch/status-bar safe areas plus the IME offset. */
+.paf-safe-top {
+  padding-top: calc(0.75rem + env(safe-area-inset-top));
+}
+.paf-bottom-nav {
+  bottom: var(--paf-keyboard-inset, 0px);
+}
+.paf-notice {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 60;
+  bottom: calc(
+    env(safe-area-inset-bottom) + var(--paf-keyboard-inset, 0px) + 4.25rem
+  );
+}
+@media (min-width: 768px) {
+  .paf-notice {
+    bottom: calc(0.75rem + var(--paf-keyboard-inset, 0px));
+  }
+}

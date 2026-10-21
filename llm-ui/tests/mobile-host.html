@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LLM mobile host test</title>
+<script>
+// Development-only host fixture. Port 8001 runs a disposable mock database, never the reader's database.
+window.__YUELIU_HOST__ = { baseUrl: 'http://127.0.0.1:8001' };
+const fixtureFetch = window.fetch.bind(window);
+window.llmTransport = {
+  onmessage: null,
+  postMessage(raw) {
+    const message = JSON.parse(raw);
+    const reply = (data) => this.onmessage?.({ data: JSON.stringify({ id: message.id, ...data }) });
+    if (message.action === 'legacy') return queueMicrotask(() => reply({ value: [] }));
+    if (message.action === 'connection') {
+      window.__YUELIU_HOST__.baseUrl = message.baseUrl;
+      return queueMicrotask(() => reply({ value: true }));
+    }
+    if (message.action === 'http') fixtureFetch(message.url, { method: message.method, headers: message.headers, body: message.body })
+      .then(async (response) => reply({ status: response.status, body: await response.text() }))
+      .catch((error) => reply({ error: error.message }));
+    else if (message.action === 'export') reply({ error: 'Use the Android system file picker in the APK' });
+  }
+};
+</script></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>

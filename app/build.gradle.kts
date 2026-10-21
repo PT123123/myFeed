@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.feedreader"
         minSdk = 21
         targetSdk = 35
-        versionCode = 19
-        versionName = "1.5.2"
+        versionCode = 20
+        versionName = "1.5.3"
 
         ndk {
             // 只出 64 位。端侧推理用完整版 onnxruntime（libonnxruntime.so 17.6MB/ABI），
@@ -59,7 +59,33 @@ android {
         // 设置页要显示版本号
         buildConfig = true
     }
+
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/llmAssets"))
 }
+
+// Keep the complete mobile LLM UI inside this repo; never depend on a sibling checkout at build time.
+val llmUi = rootProject.file("llm-ui")
+val installLlmUi by tasks.registering(Exec::class) {
+    workingDir(llmUi)
+    inputs.files(llmUi.resolve("package.json"), llmUi.resolve("pnpm-lock.yaml"))
+    outputs.file(llmUi.resolve("node_modules/.modules.yaml"))
+    commandLine(if (System.getProperty("os.name").startsWith("Windows")) listOf("cmd", "/c", "pnpm", "install", "--frozen-lockfile", "--prefer-offline") else listOf("pnpm", "install", "--frozen-lockfile", "--prefer-offline"))
+}
+val buildLlmUi by tasks.registering(Exec::class) {
+    dependsOn(installLlmUi)
+    workingDir(llmUi)
+    inputs.dir(llmUi.resolve("src"))
+    inputs.dir(llmUi.resolve("public"))
+    inputs.files(llmUi.listFiles()?.filter { it.isFile } ?: emptyList<File>())
+    outputs.dir(llmUi.resolve("dist"))
+    commandLine(if (System.getProperty("os.name").startsWith("Windows")) listOf("cmd", "/c", "pnpm", "build") else listOf("pnpm", "build"))
+}
+val bundleLlmUi by tasks.registering(Sync::class) {
+    dependsOn(buildLlmUi)
+    from(llmUi.resolve("dist"))
+    into(layout.buildDirectory.dir("generated/llmAssets/llm"))
+}
+tasks.named("preBuild") { dependsOn(bundleLlmUi) }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")

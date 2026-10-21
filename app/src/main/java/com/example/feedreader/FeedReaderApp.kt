@@ -117,7 +117,7 @@ private const val PAGE_SETTINGS = 3
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FeedReaderApp(
+internal fun SubscriptionReaderApp(
     viewModel: FeedViewModel = viewModel(),
     deepLink: DeepLink? = null,
     onDeepLinkHandled: () -> Unit = {},
@@ -127,7 +127,6 @@ fun FeedReaderApp(
     val allSources by viewModel.allSources.collectAsState()
     val useInAppBrowser by viewModel.useInAppBrowser.collectAsState()
     val relayBaseUrl by viewModel.relayBaseUrl.collectAsState()
-    val desktopFeedBaseUrl by viewModel.desktopFeedBaseUrl.collectAsState()
     val relayAutoSync by viewModel.relayAutoSync.collectAsState()
     val relayLastSyncAt by viewModel.relayLastSyncAt.collectAsState()
     val relayCommandToken by viewModel.relayCommandToken.collectAsState()
@@ -344,8 +343,6 @@ fun FeedReaderApp(
             PAGE_SETTINGS -> SettingsScreen(
                 // 设置页要展示全部源（含关掉的、含 relay 同步来的）才能给出开关
                 sources = allSources,
-                desktopFeedBaseUrl = desktopFeedBaseUrl,
-                onSetDesktopFeedConnection = viewModel::setDesktopFeedConnection,
                 enabledIds = sources.map { it.id }.toSet(),
                 useInAppBrowser = useInAppBrowser,
                 webDarkMode = webDarkMode,

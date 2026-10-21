@@ -348,7 +348,12 @@ private fun WebView.configureForReading(dark: Boolean) {
 /** 清掉内置浏览器的网页缓存与 Cookie。必须在主线程调用。 */
 fun clearWebViewCache(context: Context) {
     runCatching {
-        WebStorage.getInstance().deleteAllData()
+        // LLM Feed uses this app origin for its offline database and outbox.
+        // Clearing website storage must never erase that application data.
+        WebStorage.getInstance().getOrigins { origins ->
+            origins?.keys?.filterIsInstance<String>()?.filterNot { it.trimEnd('/') == "https://appassets.androidplatform.net" }
+                ?.forEach { WebStorage.getInstance().deleteOrigin(it) }
+        }
         CookieManager.getInstance().removeAllCookies(null)
         CookieManager.getInstance().flush()
         val probe = WebView(context)

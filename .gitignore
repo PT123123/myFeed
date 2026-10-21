@@ -13,3 +13,7 @@ build/
 local.properties
 .quarantine-*/
 *.keystore
+/llm-ui/node_modules/
+/llm-ui/dist/
+/llm-ui/.env*
+*.tsbuildinfo
