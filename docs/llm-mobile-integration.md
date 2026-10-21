@@ -8,6 +8,8 @@ LLM 页直接打包完整 React 界面源码（`llm-ui/`），支持 Feed、类�
 
 Android 的网络接口仅向本地应用来源提供，限于用户已保存电脑地址的 `/api/v1/*` 与 `/health`，禁止跳到别的主机、端口、协议或携带 URL 凭据。外部链接由系统浏览器处理，不向外部网页开放接口。模型密钥继续由电脑端保管；服务端现有鉴权不会被手机自动关闭。
 
+桥的动作为 `http`、`connection`、`legacy`、`export`，以及 2026-10-21 加的 `discovery`：网页发不了 mDNS 组播，所以由原生用系统 `NsdManager` 搜一轮再把 `{endpoints, unresolved, note}` 递回去，连接面板据此列出「点一行填进地址框」。它只是读局域网公告，不碰任何主机凭据，且只在 `isMobileHost()` 时出现入口；原生自己上 30 秒保险，早于前端那条通道 35 秒的超时。细节与实测见 `lan-discovery.md`。
+
 切换 tab 保留 LLM WebView，避免丢失正在编辑的设置和评论。订阅侧清理网页缓存会保留 LLM 应用来源的离线数据库和待同步队列。JSON 备份导入、导出使用 Android 系统文件选择器。
 
 构建：Gradle 自动安装 `llm-ui/pnpm-lock.yaml` 锁定依赖并打包界面。发布：`just publish` 先扫描可发布源码和解压后的 APK，再加入 lanpub。可用 `tools/check-release-privacy.py --env-file <本机配置>` 额外比对实际密钥；检查不会打印密钥值。

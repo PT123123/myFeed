@@ -30,8 +30,8 @@ relay 这条链的故障**没有一种是手机上能修的** —— 服务没�
 
 ### 一、判定层：`data/RelayGuidance.kt`（新增，纯逻辑）
 
-`RelayIssue` 九种症状（首次接入 / 地址不像 / 解析不到 / 端口上没服务 / 超时 / 没返回清单 /
-清单是空的 / 那个地址没文件 / 认不出），每种给：
+`RelayIssue` 十种症状（首次接入 / 地址不像 / 解析不到 / 端口上没服务 / 超时 / **局域网里一台都没搜到** /
+没返回清单 / 清单是空的 / 那个地址没文件 / 认不出），每种给：
 
 - `headline(issue)` —— 一行话，接在报错后面；
 - `headSection(issue)` —— 针对性的排查段（3–4 行，带命令）；
@@ -190,3 +190,32 @@ relay 这条链的故障**没有一种是手机上能修的** —— 服务没�
   （`shared_prefs/myfeed_settings.xml`）—— 也就是配对还没做，这一节当前会显示成「命令口没开」那副样子。
 - **仍没人眼看过**：六段清单在窄屏的排版、四个按钮按下去的转圈与结论行、选源对话框（21 行 +
   `verticalScroll`）。按约定不做屏幕自动化，要他手动看一眼。
+
+## 2026-10-21：第十种症状是「搜不到」，它第一次不是从一次失败的请求来的（1.5.4 / 21）
+
+局域网搜索落地后多了一个失败面孔：手机广播 5 秒、一台都没应答。`RelayIssue.NOT_DISCOVERED` 就是它，
+对症那一节直接嵌在搜索按钮下面（`RelayScreen` 的 `LanSearch` 里 `PcStepsBody(listOf(headSection(...)))`，
+和同步失败那两条同一个形状）。三处值得单独记：
+
+- **它没有对应的异常可映射**。前九种都从 `FeedRepository.describe()` 那句原因来（`issueFromFetchMessage`），
+  而搜不到根本没发出请求 —— 所以它是**界面直接按症状取 `headSection`**，不走那条识别链。
+  这条界线不能糊：识别链负责「别对着一台好 PC 编动作」，界面这条路只有在用户亲手按了搜索之后才走。
+- **`RelayGuidanceTest` 一字未改就多测了一种症状**，因为那四条排查用的循环都是 `RelayIssue.entries`。
+  新加的那节里两条命令（`pip install zeroconf`、`New-NetFirewallRule … UDP 5353`）不进 harvest 子命令
+  白名单：那条正则是 `-m harvest (\w+)`，抓不到它们 —— 这正是想要的：允许写电脑端别的命令，
+  但不允许编一个不存在的 harvest 子命令。
+- **「每一行重启 serve 都带着 `--allow-commands`」那条门真的抓到了东西**：新 section 第一版写的是
+  `serve --host auto --port 8099`，红了一次，补上开关才过。这条规则在 1.4.9 立的时候是防倒退，
+  第一次由新增文案触发才看出它是在管活人的手。
+
+`headline(NOT_DISCOVERED)` 写的是「电脑上装 zeroconf 后用 serve --host auto 重起，再放行 UDP 5353 入站」，
+`pageSections(NOT_DISCOVERED)` 是 7 节（对症 + 整份清单）。整份清单本身仍是六段，
+`allSections()` 没变 —— 搜索失败不是「第一次接入」那类一次性动作。
+
+### 验证情况
+
+- `:app:testDebugUnitTest` **453 项 0 失败**（1.4.9 是 436）。新增 `LanRulesTest` 8 项钉两侧契约字面量、
+  FQDN 写法差异、地址可用性表和「搜索结果与手填走同一个 `normalizeBase`」；`RelayGuidanceTest` 仍 18 项。
+- 门数、真跑过的广播、以及**手机上 NSD 一次都没按过**（没插设备）都写在 [lan-discovery.md](lan-discovery.md)。
+  版本号 **1.5.4 / versionCode 21**，release 包已进局域网仓库；**装机没做**（无设备可装），
+  所以这一版的界面文案在真机上还一次没显示过。

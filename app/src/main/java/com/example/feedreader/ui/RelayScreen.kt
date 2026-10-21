@@ -51,6 +51,10 @@ import androidx.compose.ui.unit.dp
 import com.example.feedreader.data.DeepLink
 import com.example.feedreader.data.GuideLine
 import com.example.feedreader.data.GuideSection
+import com.example.feedreader.data.LanEndpoint
+import com.example.feedreader.data.LanRole
+import com.example.feedreader.data.LanRules
+import com.example.feedreader.data.LanScan
 import com.example.feedreader.data.RelayCommands
 import com.example.feedreader.data.RelayFeedRow
 import com.example.feedreader.data.RelayGuidance
@@ -91,6 +95,7 @@ fun RelayScreen(
     feedRows: List<RelayFeedRow>,
     focus: RelayIssue?,
     onSyncRelay: suspend (String) -> RelaySyncResult,
+    onSearchLan: suspend (LanRole) -> LanScan,
     onSelfTest: suspend () -> RelaySelfTest,
     onSendCommand: suspend (String, String?) -> RelayCommands.Reply,
     onCommandStatus: suspend () -> RelayCommands.Status?,
@@ -447,6 +452,7 @@ fun RelayScreen(
         RelayDialog(
             current = relayBaseUrl,
             onSync = onSyncRelay,
+            onSearchLan = onSearchLan,
             onDone = { message -> scope.launch { snackbar.showSnackbar(message) } },
             onDismiss = { relayDialog = false },
         )
@@ -570,11 +576,15 @@ private fun CopyCommandsRow(sections: List<GuideSection>) {
  *
  * 失败时窗口留着、错误显示在里面，并把对症的那一节电脑端命令直接嵌在错误下面 ——
  * 地址大概率就在输入框里差一个字符，而下一步动作只在电脑上。
+ *
+ * 输入框下面那一节 [LanSearch] 是「不用先知道 IP」的那条路：搜到就填进框里，
+ * 仍然要人按一次同步 —— 手填和扫码那两条退路照旧留着。
  */
 @Composable
 private fun RelayDialog(
     current: String,
     onSync: suspend (String) -> RelaySyncResult,
+    onSearchLan: suspend (LanRole) -> LanScan,
     onDone: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -610,6 +620,16 @@ private fun RelayDialog(
                     placeholder = { Text("192.168.0.2") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     modifier = Modifier.fillMaxWidth(),
+                )
+
+                LanSearch(
+                    enabled = !syncing,
+                    onSearch = { onSearchLan(LanRole.RELAY) },
+                    onPick = { endpoint ->
+                        text = endpoint.baseUrl
+                        error = null
+                        issue = null
+                    },
                 )
 
                 if (syncing) {
@@ -681,6 +701,84 @@ private fun RelayDialog(
             TextButton(enabled = !syncing, onClick = onDismiss) { Text("取消") }
         },
     )
+}
+
+/**
+ * 「搜索局域网里的电脑」这一节：开一个 mDNS 广播窗口，谁在应答就列一行，点一行填进输入框。
+ *
+ * 搜到之后**不自动同步**：这一页可能同时列出两台采集机，哪台才是人要的那台只有看机器名
+ * 的人能判断；自动挑第一条等于替用户决定「这批订阅是从哪台电脑搬进来的」。
+ *
+ * 搜不到时对症那节摆在全份清单前面（和同步失败那两条同一个理由）：手机这一侧没什么可改的，
+ * 下一步动作全在那台电脑上。
+ */
+@Composable
+private fun LanSearch(
+    enabled: Boolean,
+    onSearch: suspend () -> LanScan,
+    onPick: (LanEndpoint) -> Unit,
+) {
+    var scanning by remember { mutableStateOf(false) }
+    var searched by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf<List<LanEndpoint>>(emptyList()) }
+    var note by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    Spacer(modifier = Modifier.height(10.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextButton(
+            enabled = enabled && !scanning,
+            onClick = {
+                scanning = true
+                searched = false
+                found = emptyList()
+                note = null
+                scope.launch {
+                    // 兜一层：系统 NSD 起不来时，这一行不能永远转着「正在找」
+                    val scan = runCatching { onSearch() }
+                        .getOrElse { LanScan(emptyList(), 0, it.message ?: "这台设备没跑起搜索") }
+                    found = scan.endpoints
+                    note = if (scan.endpoints.isEmpty()) scan.note else scan.summary()
+                    searched = true
+                    scanning = false
+                }
+            },
+        ) { Text(if (scanning) "正在局域网里找…" else "搜索局域网里的电脑") }
+        if (scanning) {
+            Spacer(modifier = Modifier.width(8.dp))
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            HintText("约 ${LanRules.BROADCAST_MS / 1000} 秒")
+        }
+    }
+    found.forEach { endpoint ->
+        ActionRow(title = endpoint.name, subtitle = endpoint.baseUrl) { onPick(endpoint) }
+    }
+    if (!scanning) {
+        val message = note
+        when {
+            message != null -> InfoText(
+                text = message,
+                emphasis = true,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+
+            searched -> Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                HintText(
+                    "一台都没搜到。手机这边不用改什么，也不欠权限 —— 下面几条都在那台电脑上。" +
+                        "手填 IP 和扫码那两条路照旧能用，急的话先走它们。",
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                PcStepsBody(listOf(RelayGuidance.headSection(RelayIssue.NOT_DISCOVERED)))
+            }
+        }
+    }
+}
+
+/** 搜到之后那一行话：顺带把「应了答却没报上地址」的台数报出来，别让它们凭空消失。 */
+private fun LanScan.summary(): String = buildString {
+    append("点一行就填进上面那个框")
+    if (unresolved > 0) append("；另有 $unresolved 台应了答却没报上地址")
 }
 
 /**

@@ -14,6 +14,9 @@ import com.example.feedreader.data.FetchOutcome
 import com.example.feedreader.data.Interest
 import com.example.feedreader.data.InterestStore
 import com.example.feedreader.data.Interests
+import com.example.feedreader.data.LanDiscovery
+import com.example.feedreader.data.LanRole
+import com.example.feedreader.data.LanScan
 import com.example.feedreader.data.OpmlParser
 import com.example.feedreader.data.ReadStateStore
 import com.example.feedreader.data.ProbeResult
@@ -77,6 +80,9 @@ class FeedViewModel @JvmOverloads constructor(
      * 和「新加一个源」会走两条互不知情的路径。
      */
     private val sourceStore = SourceStore(app)
+
+    /** 局域网发现：系统 NSD 的封装，用完即弃，跨搜索不留状态。 */
+    private val lanDiscovery = LanDiscovery(app)
 
     /**
      * 已读记录。和 [cache] 一样落在 filesDir，只是键换成了「这篇读过没有」。
@@ -377,6 +383,21 @@ class FeedViewModel @JvmOverloads constructor(
         }
         OpmlImportResult.Imported(parsed = parsed.size, added = added)
     }
+
+    /**
+     * 在局域网里搜一遍阅流的电脑服务（mDNS/NSD），省掉「人得先知道那台机器的 IP」。
+     *
+     * 每次调用真的重搜一遍、不做缓存：一次搜索的开销全在那 [LanRules.BROADCAST_MS] 的
+     * 广播窗口上，两个入口（采集页、LLM 连接面板）各搜各的，比共用一份要猜什么时候过期的
+     * 结果好解释 —— 尤其是「电脑端刚起来还没搜到」这种情况，缓存会让它变成要么永远没有、
+     * 要么突然就有。
+     *
+     * 只留下 [role] 那一类：搜到两台电脑时，采集页不该让人去猜哪一行是它能用的。
+     */
+    suspend fun searchLan(role: LanRole): LanScan =
+        lanDiscovery.search().let { scan ->
+            scan.copy(endpoints = scan.endpoints.filter { it.role == role })
+        }
 
     /**
      * 从 crawlbase relay 同步订阅 —— 直接拉 PC 上那台 harvest 服务的 `feeds.opml`。

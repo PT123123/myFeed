@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 局域网搜索（mDNS/NSD）要在 WiFi 省电时还收得到组播；这是 normal 权限，
+         装了就有、不弹框。没有它，部分机型上「搜索」会稳定搜不到东西。 -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- 扫一扫只要相机，且 required="false"：没有后置摄像头的设备（电视盒子、
          模拟器）照样能装，扫不了码还有手填 PC 地址那条路。 -->
     <uses-permission android:name="android.permission.CAMERA" />

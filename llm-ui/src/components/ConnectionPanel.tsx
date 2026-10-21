@@ -6,12 +6,35 @@ import { isMobileHost, nativeRequest } from '../mobile/transport'
 
 type UpdateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>
 
+interface LanEndpoint { name: string; baseUrl: string; role: string }
+interface LanScanValue { endpoints?: LanEndpoint[]; unresolved?: number; note?: string }
+
 export function ConnectionPanel({ settings, update }: { settings: AppSettings; update: UpdateSetting }) {
   const [draft, setDraft] = useState<string | null>(null)
   const [report, setReport] = useState<DiagReport | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const [lan, setLan] = useState<LanEndpoint[]>([])
+  const [scanning, setScanning] = useState(false)
   const address = draft ?? settings.apiBaseUrl
+  const searchLan = async () => {
+    setScanning(true)
+    setLan([])
+    setNote('')
+    try {
+      // 只有原生壳能发 mDNS 组播，网页这一侧拿不到 5353
+      const reply = await nativeRequest('discovery', { role: 'desktop' })
+      const value = (reply.value ?? {}) as LanScanValue
+      const found = value.endpoints ?? []
+      setLan(found)
+      if (found.length === 0) {
+        setNote(value.note ?? '一台都没搜到。电脑端要把服务开到局域网（just server-lan），并第一次放行 UDP 5353 入站；急的话照旧手填地址。')
+      } else if (value.unresolved) {
+        setNote(`另有 ${value.unresolved} 台应了答却没报上地址。`)
+      }
+    } catch (error) { setNote(error instanceof Error ? error.message : String(error)) }
+    finally { setScanning(false) }
+  }
   const save = async () => {
     setBusy(true)
     setNote('')
@@ -37,6 +60,18 @@ export function ConnectionPanel({ settings, update }: { settings: AppSettings; u
       <input className="paf-input" value={address} onChange={(event) => setDraft(event.target.value)}
         placeholder="http://192.168.0.2:8000" inputMode="url" autoComplete="off" spellCheck={false} />
     </label>
+    {isMobileHost() && <div className="space-y-2">
+      <button className="paf-btn" disabled={scanning || busy} onClick={() => void searchLan()}>
+        {scanning ? '正在局域网里找…（约 5 秒）' : '搜索局域网里的电脑'}
+      </button>
+      {lan.map((endpoint) => <button key={endpoint.baseUrl}
+        className="block w-full rounded-lg border border-[var(--paf-border)] px-3 py-2 text-left text-sm"
+        onClick={() => { setDraft(endpoint.baseUrl); setNote('') }}>
+        <span className="font-medium">{endpoint.name}</span>
+        <span className="ml-2 text-xs text-[var(--paf-muted)]">{endpoint.baseUrl}</span>
+      </button>)}
+      {lan.length > 0 && <p className="text-xs text-[var(--paf-muted)]">点一行填进上面那个框，仍要按「保存地址并同步」。</p>}
+    </div>}
     <button className="paf-btn bg-[var(--paf-accent)] text-white" disabled={busy} onClick={() => void save()}>
       {busy ? '检查并同步…' : '保存地址并同步'}
     </button>

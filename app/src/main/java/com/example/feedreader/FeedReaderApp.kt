@@ -319,6 +319,7 @@ internal fun SubscriptionReaderApp(
                 // 从失败横幅点进来时对症那一节排在前面；从抽屉进来没有「这次」，就没有对症
                 focus = relayFocus,
                 onSyncRelay = { viewModel.syncFromRelay(it) },
+                onSearchLan = viewModel::searchLan,
                 onSelfTest = viewModel::runRelaySelfTest,
                 onSendCommand = viewModel::sendRelayCommand,
                 onCommandStatus = viewModel::relayCommandStatus,

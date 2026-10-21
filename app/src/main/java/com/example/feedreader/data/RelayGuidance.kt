@@ -31,6 +31,14 @@ enum class RelayIssue {
     /** 连接超时：地址上多半不是这台 PC（关机、睡眠、换 IP、被防火墙挡住）。 */
     UNREACHABLE,
 
+    /**
+     * 局域网搜索一台都没搜到。
+     *
+     * 和 [UNREACHABLE] 分得开是因为修法完全不同：那边是「地址对不对」，这边是
+     * 「那台电脑有没有在广播」。手机上不用装东西也不要权限，所以症状一律往电脑端追。
+     */
+    NOT_DISCOVERED,
+
     /** 连上了但没返回 OPML：端口读错了（浏览器的调试端口不是它），或者还没生成清单。 */
     NOT_A_MANIFEST,
 
@@ -170,6 +178,22 @@ object RelayGuidance {
             ),
         )
 
+        RelayIssue.NOT_DISCOVERED -> GuideSection(
+            "这次搜索：局域网里一台都没搜到",
+            note = "手机上不用装任何东西、也不会弹权限：搜不到一定是电脑端没在广播，" +
+                "或那台机器的 5353 入站被挡。这两件事在界面上长得一样，得分开查。",
+            lines = listOf(
+                GuideLine("先看电脑端起服务时那几行：有「mDNS 已公告 <IP>:<端口>」才算广播出去了。" +
+                    "写的是「没装 zeroconf」就是下面第一条。"),
+                GuideLine("公告用的是 serve 那个环境里的库，缺它手机只能手填 IP 或扫码：", """& .\.venv\Scripts\python.exe -m pip install zeroconf"""),
+                GuideLine("装完重起，让它自己探局域网地址并广播：", "$HARVEST serve --host auto --allow-commands"),
+                GuideLine("起服务时带过 --no-mdns 就永远不会被搜到 —— 那是故意关掉广播，去掉这个开关再起一次。"),
+                GuideLine("第一次要放进站的 UDP 5353（管理员 PowerShell，你自己点）：", "New-NetFirewallRule -DisplayName yueliu-mdns -Direction Inbound -Protocol UDP -LocalPort 5353 -Action Allow"),
+                GuideLine("Windows 自带那条「mDNS (UDP-In)」只放行 svchost.exe，管不到 python；" +
+                    "而本机自己收发不过防火墙，所以「电脑上搜得到」证明不了手机搜得到。"),
+            ),
+        )
+
         RelayIssue.NOT_A_MANIFEST -> GuideSection(
             "这次同步：那个地址没返回清单",
             lines = listOf(
@@ -212,6 +236,7 @@ object RelayGuidance {
         RelayIssue.DIFFERENT_NETWORK -> "电脑上重新起 serve，拿新的局域网地址"
         RelayIssue.SERVICE_DOWN -> "电脑上把 harvest 的 serve 起来（关掉那个终端窗口它就是下线了）"
         RelayIssue.UNREACHABLE -> "电脑上确认 PC 醒着、还在同一个网络，重新起 serve"
+        RelayIssue.NOT_DISCOVERED -> "电脑上装 zeroconf 后用 serve --host auto 重起，再放行 UDP 5353 入站"
         RelayIssue.NOT_A_MANIFEST -> "电脑上跑 harvest discover --apply 再 run，清单是它们的产物"
         RelayIssue.EMPTY_MANIFEST -> "电脑上跑 harvest run：清单只列已经采出文件的源"
         RelayIssue.NO_FILE -> "电脑上跑 harvest run 补那份文件，再 regen 重出清单"

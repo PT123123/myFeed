@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.feedreader"
         minSdk = 21
         targetSdk = 35
-        versionCode = 20
-        versionName = "1.5.3"
+        versionCode = 21
+        versionName = "1.5.4"
 
         ndk {
             // 只出 64 位。端侧推理用完整版 onnxruntime（libonnxruntime.so 17.6MB/ABI），

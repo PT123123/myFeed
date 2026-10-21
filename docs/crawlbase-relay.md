@@ -149,12 +149,16 @@ $PY = ".\.venv\Scripts\python.exe"
 & $PY -m harvest serve --host 192.168.x.x --port 8099
 #    2026-09-27 之后也可以 `serve --host auto`：基址自动探本机局域网 IP，stderr 会打印
 #    subscribe.html 的地址 —— 但 auto 实际绑的是 0.0.0.0，比上面那行宽，自己权衡。
+#    2026-10-21 之后 serve 还会用 mDNS 广播 `_yueliu-relay._tcp`，横幅里写明公告成功没有；
+#    故意不广播时加 `--no-mdns`，`--host 127.0.0.1` 则根本不公告。见文末追加十二。
 ```
 
 然后在 App：兴趣与设置 → 我添加的源 → **从 crawlbase relay 同步** → 填 `192.168.x.x`
 （不带端口按 8099 算）。那边加账号、这边换 IP，都是再点一次同一个按钮。
 现在多一条更省事的路：手机浏览器开 `http://<PC>:8099/subscribe.html` 或直接扫码 —— 见文末
 「2026-09-27 追加：扫码订阅」。
+2026-10-21 起这个对话框里还有一个**搜索局域网里的电脑**：不用先知道 IP，点一行就填进框里，
+仍然要人按一次同步 —— 见文末「追加十二」。
 
 日常刷新用 Windows 任务计划每 4 小时跑一次 `& $PY -m harvest run` 即可（内部还有每日 4 次
 上限兜底），`serve` 长驻。
@@ -688,3 +692,26 @@ Light 主题，于是系统夜里真机上 WebView 报的是亮，界面是暗�
 没验到的：**手机上那四个命令按钮的观感与真跑**（要他先扫 `/pair`，再点一下才会真打到 PC）；
 夜里阅读页的观感（按约定没做任何屏幕自动化，只跑编译 + 资源/dex 校验，要他亲眼看一眼）；
 `/pair` 在只有 IPv6 或 hostname 访问时的地址形态。
+
+## 2026-10-21 追加十二：地址不再要先知道 —— serve 广播，手机搜（1.5.4 / 21 已入局域网仓库）
+
+前面十一条里，「手机怎么连上这台 PC」始终要先有人去电脑上把 IP 抄下来：`--host auto` 只是让
+**绑定**不用猜，stderr 那行地址还得人看一眼再打进手机。DHCP 一变 IP，那 21 条源的地址就跟着变，
+而复述这份实况的正是 `UNREACHABLE` / `DIFFERENT_NETWORK` 那两节提示。这一版让手机自己问。
+
+- **两侧各广播一个 DNS-SD 类型**：harvest `serve` 起 `harvest/mdns.py`（`_yueliu-relay._tcp.local.`，
+  `--no-mdns` 可关，回环地址根本不公告），阅流电脑端起 `app/services/mdns.py`
+  （`_yueliu-desktop._tcp.local.`，开关 `PAF_MDNS`，默认「监听地址不是回环就公告」）。TXT 只有
+  `txtvers` / `role` / `v`，端口交给 SRV、机器名交给实例名。
+- **手机走系统 `NsdManager`**：`data/LanRules.kt`（契约与地址可用性，纯函数）+ `data/LanDiscovery.kt`
+  （框架编排）。先花固定 5 秒只收公告、再逐个解析，因为浏览还挂着时发起解析在部分机型上以 11 失败；
+  权限只多一个 `CHANGE_WIFI_MULTICAST_STATE`。落点两处：「电脑端采集」的地址对话框、LLM Feed 的
+  连接面板（后者经 WebView 桥的 `discovery` 动作，网页自己发不了组播）。
+- **手填和扫码两条退路一字未动**，搜到也不自动同步：一屋子两台采集机时，哪台才是人要的那台只有看机器名的人能判断。
+- 顺带修掉一个静默出错：`start-server.ps1` 的监听地址只在命令行上，而配置读环境变量 ——
+  不把它们写进子进程环境，广播出去的端口会是 `.env` 里那个而不是真在听的那个。
+
+实测、Windows 防火墙那三条实况（自带 `mDNS (UDP-In)` 只放行 `svchost.exe`、本机互发不过防火墙，
+所以「电脑上搜得到」证明不了手机搜得到、第一次要放行 UDP 5353 入站）、以及**手机侧一次都没真机按过**
+这件事，全部写在 [lan-discovery.md](lan-discovery.md)。版本号 **1.5.4 / versionCode 21**，release 包已进局域网仓库（`com.example.feedreader_21.apk`），
+**但没装机**：`adb devices` 是空的，手机侧那一半要等他插设备点一次才算验过。

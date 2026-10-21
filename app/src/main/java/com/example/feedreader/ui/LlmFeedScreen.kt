@@ -22,12 +22,15 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.example.feedreader.data.DesktopFeedCache
+import com.example.feedreader.data.LanDiscovery
+import com.example.feedreader.data.LanRole
 import com.example.feedreader.data.ReadStateStore
 import com.example.feedreader.data.SettingsStore
 import com.example.feedreader.data.LlmServicePolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -154,6 +157,26 @@ fun LlmFeedScreen(savedState: Bundle, modifier: Modifier = Modifier, active: Boo
                     }
                     "legacy" -> scope.launch {
                         reply(JSONObject().put("value", withContext(Dispatchers.IO) { legacyPosts(context) }))
+                    }
+                    // 局域网搜索：WebView 自己发不了 mDNS 组播，只能由原生这一侧搜完把清单递回去。
+                    // 30 秒是自己上的保险：前端那条通道 35 秒就报超时，那时用户只看到一句
+                    // 「电脑服务未响应」，分不清是搜索慢还是这台设备压根没有 NSD。
+                    "discovery" -> scope.launch {
+                        val role = data.optString("role")
+                        val scan = withContext(Dispatchers.IO) {
+                            runCatching { withTimeoutOrNull(30_000L) { LanDiscovery(context).search() } }.getOrNull()
+                        }
+                        if (scan == null) {
+                            reply(JSONObject().put("error", "局域网搜索没在这台设备上跑起来，先手填电脑地址"))
+                        } else {
+                            val wanted = LanRole.entries.firstOrNull { it.name.equals(role, ignoreCase = true) }
+                            val items = JSONArray()
+                            scan.endpoints
+                                .filter { wanted == null || it.role == wanted }
+                                .forEach { items.put(JSONObject().put("name", it.name).put("baseUrl", it.baseUrl).put("role", it.role.name.lowercase())) }
+                            val value = JSONObject().put("endpoints", items).put("unresolved", scan.unresolved)
+                            reply(JSONObject().put("value", scan.note?.let { value.put("note", it) } ?: value))
+                        }
                     }
                     "export" -> {
                         if (export != null || data.optString("contents").length > MAX_MESSAGE) {

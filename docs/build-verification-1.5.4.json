@@ -1,0 +1,33 @@
+{
+  "verifiedAt": "2026-10-21T22:09:00+08:00",
+  "version": "1.5.4",
+  "versionCode": 21,
+  "appTests": 453,
+  "semanticTests": 59,
+  "failures": 0,
+  "errors": 0,
+  "command": "gradlew :app:testDebugUnitTest :app:assembleRelease :semantic:testDebugUnitTest --console=plain",
+  "build": "passed",
+  "deviceInstallation": "not run - no connected Android device",
+  "artifact": {
+    "path": "app/build/outputs/apk/release/app-release.apk",
+    "bytes": 19375123,
+    "sha256": "D27B990AF3876C91C24B8F9E8DF145E73835F858CF961E7A60D3957E362A045F"
+  },
+  "thisRelease": [
+    "局域网发现（mDNS/DNS-SD）：手机不再需要先知道电脑 IP，见 docs/lan-discovery.md",
+    "两侧服务各广播一个类型：_yueliu-relay._tcp（harvest serve）与 _yueliu-desktop._tcp（LLM Feed 桥的 discovery 动作）",
+    "RelayIssue 新增 NOT_DISCOVERED：搜不到时的对症命令直接嵌在搜索按钮下面"
+  ],
+  "verifiedByArtifactReadback": {
+    "aapt2Badging": "package name='com.example.feedreader' versionCode='21' versionName='1.5.4' label='阅流'",
+    "bundledUi": "assets/llm/assets/index-Bj991wV2.js 内含「搜索局域网里的电脑」",
+    "dexStrings": "classes6.dex 内含 _yueliu-relay._tcp 与 _yueliu-desktop._tcp",
+    "mergedManifest": "android.permission.CHANGE_WIFI_MULTICAST_STATE 在位"
+  },
+  "notVerified": [
+    "手机侧 NsdManager 一次都没真机按过（adb devices 为空）",
+    "venv 的 python.exe 收到的 UDP 5353 入站尚未实际放行过：本机互发不过防火墙，电脑上搜得到证明不了手机搜得到",
+    "搜索结果列表与「一台都没搜到」那一节的排版没人眼看过"
+  ]
+}
