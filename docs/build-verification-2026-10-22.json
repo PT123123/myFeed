@@ -1,0 +1,45 @@
+{
+  "verifiedAt": "2026-10-22T08:16:24+08:00",
+  "version": "1.5.5",
+  "versionCode": 22,
+  "appTests": 473,
+  "appTestClasses": 47,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "command": "gradlew :app:testDebugUnitTest --console=plain",
+  "build": "passed",
+  "uiTests": 198,
+  "uiTestFiles": 24,
+  "uiCommand": "npx vitest run; npx tsc -b",
+  "typecheck": "passed",
+  "privacyCheck": "passed - tools/check-release-privacy.py --apk app-release.apk (280 source files + all decompressed APK entries)",
+  "deviceInstallation": "not run - MIUI 拦住了 USB 安装（INSTALL_FAILED_USER_RESTRICTED），复测时设备也未接入",
+  "artifact": {
+    "path": "app/build/outputs/apk/release/app-release.apk",
+    "bytes": 19408158,
+    "sha256": "A9536CF88C8FACB3CBF0D3CF0EEEDAC2C1509DFA3EC5F06BD0332AF4604F29CB",
+    "abi": "arm64-v8a",
+    "minSdk": 21,
+    "targetSdk": 35,
+    "signer": "C=US, O=Android, CN=Android Debug",
+    "readBack": "aapt2 dump badging 读到 versionCode=22 / versionName=1.5.5；assets/llm/assets/index-kRAvutib.js 内含 __YUELIU_HOST__（×4）、.manage 与令牌回退，证明 manage 模式已进包"
+  },
+  "release": {
+    "commit": "bf1560c",
+    "tag": "v1.5.5",
+    "url": "https://github.com/PT123123/myFeed/releases/tag/v1.5.5",
+    "asset": "MyFeed-v1.5.5-arm64-v8a.apk",
+    "assetSha256FromServer": "A9536CF88C8FACB3CBF0D3CF0EEEDAC2C1509DFA3EC5F06BD0332AF4604F29CB"
+  },
+  "lanrepo": {
+    "command": "just publish",
+    "entry": "repo/com.example.feedreader_22.apk",
+    "entrySha256": "A9536CF88C8FACB3CBF0D3CF0EEEDAC2C1509DFA3EC5F06BD0332AF4604F29CB"
+  },
+  "notVerified": [
+    "真机端到端同步：电脑端长期关机后重连，outbox 里的已读有没有回补、410 之后游标有没有正确退回快照",
+    "状态栏遮挡是否真修好：需要在 3x 平板上量抽屉首个可点控件的 bounds 与状态栏高度对照",
+    "WebView 在 manage 模式下的实际渲染（阅读入口是否真的不摆、令牌回写是否生效）"
+  ]
+}

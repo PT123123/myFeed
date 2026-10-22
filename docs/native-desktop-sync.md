@@ -103,5 +103,10 @@ WebView 常驻不销毁，否则正在编辑的提示词草稿和未提交的事
 - **本机 `apps/server` 实测可读**：`/health` 返回 `auth_required=false`，`/sync/snapshot` 389KB、
   `latest_seq=632`、345 条帖子（292 条 demo）、14 条状态；`/sync/changes?since_seq=600` 32 条。
   上面那些「实测 N 条」全部是这几条命令数出来的。
-- 没做的：真机端到端（手机 → 电脑一轮 push+pull 的实际裁决）、以及把装机后的控件 bounds
-  跟装机前对照着重测一遍。
+- `llm-ui` 侧 198 颗 vitest 全绿（24 个文件），`tsc -b` 干净。
+- 发布数字与产物指纹记在 `docs/build-verification-2026-10-22.json`（1.5.5 / versionCode 22）。
+- **没做的**（这三条得等装机之后补，代码层结论不等于实测）：
+  真机端到端（手机 → 电脑一轮 push+pull 的实际裁决、410 之后退回快照时队列有没有保住）、
+  装机后抽屉首个可点控件的 bounds 与状态栏高度对照、manage 模式下 WebView 实际渲染成什么样。
+  1.5.5 出包当晚装机被 MIUI 挡下：`INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`，
+  这是手机上「USB 安装」那个授权开关，得人在旁边点一次。
