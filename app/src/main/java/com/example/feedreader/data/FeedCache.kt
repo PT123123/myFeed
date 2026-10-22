@@ -194,12 +194,13 @@ class FeedCache(private val dir: File) {
         private const val MAGIC = 0x4D46_4348       // "MFCH"
         /**
          * 2 = 每篇文章多带一个 `body`（源里的全文）。
+         * 3 = 再带电脑端帖子的三个 remote 字段（帖子 id、内容类型、策展理由）。
          *
          * 加字段就是一次格式变更，老文件读不出 body 也**不该**硬兼容：读到一半串了位，
          * 症状是若干篇文章的 link/author 变成乱码，比缓存整体失效难查得多。版本对不上
          * 就当没缓存，下次刷新自然写回新版。
          */
-        private const val VERSION = 2
+        private const val VERSION = 3
         private const val SUFFIX = ".feed"
         private const val MAX_ARTICLES = 500
         private const val MAX_FILE = 32L * 1024 * 1024
@@ -237,6 +238,9 @@ private fun DataOutputStream.writeArticle(article: Article) {
     writeStr(article.category)
     writeLong(article.publishedAt)
     writeStr(article.publishedRaw)
+    writeStr(article.remotePostId.orEmpty())
+    writeStr(article.remoteKind)
+    writeStr(article.remoteReason)
 }
 
 private fun DataInputStream.readArticle(): Article = Article(
@@ -251,6 +255,9 @@ private fun DataInputStream.readArticle(): Article = Article(
     category = readStr(),
     publishedAt = readLong(),
     publishedRaw = readStr(),
+    remotePostId = readStr().takeIf { it.isNotEmpty() },
+    remoteKind = readStr(),
+    remoteReason = readStr(),
 )
 
 /** 单字段上限，只用来挡住损坏文件导致的离谱内存分配。 */

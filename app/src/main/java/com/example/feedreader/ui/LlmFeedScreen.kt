@@ -93,7 +93,15 @@ fun LlmFeedScreen(savedState: Bundle, modifier: Modifier = Modifier, active: Boo
         val loader = WebViewAssetLoader.Builder().addPathHandler("/") { path ->
             if (path == "llm/index.html") {
                 // Runtime-only connection data; escape HTML delimiters before embedding JSON.
-                val host = JSONObject().put("baseUrl", preferences.desktopFeedBaseUrl).toString()
+                //
+                // 这一页现在只管生产：内容和已读都归原生那条流了，所以地址、令牌由原生
+                // 递进去（`desktopFeedBaseUrl`/`desktopFeedToken`），网页里那份只是显示与回填。
+                // `manage` 告诉 llm-ui 把 Feed / Saved / Discover 这些阅读侧的路由收起来。
+                val host = JSONObject()
+                    .put("baseUrl", preferences.desktopFeedBaseUrl)
+                    .put("token", preferences.desktopFeedToken)
+                    .put("manage", true)
+                    .toString()
                     .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
                 val html = context.assets.open("llm/index.html").bufferedReader().use { it.readText() }
                     .replace("</head>", "<script>window.__YUELIU_HOST__=$host;</script></head>")
@@ -152,6 +160,10 @@ fun LlmFeedScreen(savedState: Bundle, modifier: Modifier = Modifier, active: Boo
                             reply(JSONObject().put("error", "请填写电脑服务的根地址，例如 http://192.168.0.2:8000"))
                         } else {
                             preferences.desktopFeedBaseUrl = url.toString().trimEnd('/')
+                            // 令牌同一个动作带回来：网页里那格填完就该是本机唯一的凭据，
+                            // 存两处迟早对不上（原生同步用的是它，网页请求用的也是它）。
+                            val token = data.optString("token").trim()
+                            if (token.isNotEmpty()) preferences.desktopFeedToken = token
                             reply(JSONObject().put("value", true))
                         }
                     }

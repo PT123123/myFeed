@@ -21,11 +21,12 @@ import { db } from '../db'
 import { readingCorpus, unreadCount } from '../lib/feedQuery'
 import { useKeyboardInset } from '../hooks/useKeyboardInset'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
+import { isManageMode } from '../mobile/transport'
 import { GenerationStatusRail } from './GenerationStatusRail'
 import { ThemeToggle } from './ThemeToggle'
 import type { ThemePreference } from '../lib/theme'
 
-const NAV = [
+const NAV_FULL = [
   { to: '/', label: 'Feed', icon: Flame, end: true },
   { to: '/discover', label: '发现', icon: Compass, end: false },
   { to: '/saved', label: '收藏', icon: Download, end: false },
@@ -41,6 +42,12 @@ const NAV_MORE = [
   { to: '/sources', label: '来源', icon: Newspaper, end: false },
 ]
 
+/** 手机壳里阅读归原生那条流，这几个入口点了只会撞回生成页，不如不摆。 */
+const READING_PATHS = new Set(['/', '/discover', '/saved', '/post'])
+
+const MANAGE = isManageMode()
+const NAV = MANAGE ? NAV_FULL.filter((i) => !READING_PATHS.has(i.to)) : NAV_FULL
+
 const TITLES: Record<string, string> = {
   '/': 'Feed',
   '/discover': '发现',
@@ -54,7 +61,7 @@ const TITLES: Record<string, string> = {
 }
 
 /** 双列瀑布流和左右分栏需要更宽的主列（docs/08 §1）。 */
-const TWO_COL_PATHS = new Set(['/', '/saved', '/discover'])
+const TWO_COL_PATHS = new Set(MANAGE ? [] : ['/', '/saved', '/discover'])
 
 function mainWidth(path: string): string {
   if (path.startsWith('/post/')) return 'max-w-[1000px]'
@@ -75,6 +82,7 @@ export function AppShell({
   useKeyboardInset()
   const [moreOpen, setMoreOpen] = useState(false)
   const stats = useLiveQuery(async () => {
+    if (MANAGE) return null
     const posts = await db.posts.toArray()
     const interests = await db.interests.toArray()
     const topics = await db.topics.toArray()
@@ -171,15 +179,15 @@ export function AppShell({
 
         {/* 右栏：三栏从 1200px 起（docs/08 §1），不是 Tailwind 的 xl */}
         <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-4 overflow-y-auto border-l border-[var(--paf-border)] p-4 three-col:flex">
-          <section className="paf-hero">
+          {!MANAGE && <section className="paf-hero">
             <p className="relative text-xs tracking-wide text-white/80">今日库存</p>
             <p className="relative mt-1 text-3xl font-bold tabular-nums">{stats?.unread ?? '—'}</p>
             <p className="relative mt-1 text-xs leading-5 text-white/80">
               未读 · 信息流共 {stats?.total ?? 0} 条 · 待同步 {stats?.pending ?? 0} 项
             </p>
-          </section>
+          </section>}
           <GenerationStatusRail />
-          <section>
+          {!MANAGE && <section>
             <h2 className="paf-section-title">在追的主题</h2>
             <ul className="mt-2 space-y-1">
               {stats?.topTopics.map((t) => (
@@ -202,7 +210,7 @@ export function AppShell({
             <p className="mt-1 px-2 text-xs text-[var(--paf-muted)]">
               未读最多的主题排在最前；点进去调权重。
             </p>
-          </section>
+          </section>}
         </aside>
       </div>
 

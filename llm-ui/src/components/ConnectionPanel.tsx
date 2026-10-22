@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { AppSettings } from '../db/types'
 import { normalizeBase, runDiagnostics, type DiagReport } from '../services/diagnostics'
 import { runSync } from '../services/sync'
-import { isMobileHost, nativeRequest } from '../mobile/transport'
+import { injectedToken, isManageMode, isMobileHost, nativeRequest } from '../mobile/transport'
 
 type UpdateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>
 
@@ -11,12 +11,15 @@ interface LanScanValue { endpoints?: LanEndpoint[]; unresolved?: number; note?: 
 
 export function ConnectionPanel({ settings, update }: { settings: AppSettings; update: UpdateSetting }) {
   const [draft, setDraft] = useState<string | null>(null)
+  const [tokenDraft, setTokenDraft] = useState<string | null>(null)
   const [report, setReport] = useState<DiagReport | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const [lan, setLan] = useState<LanEndpoint[]>([])
   const [scanning, setScanning] = useState(false)
   const address = draft ?? settings.apiBaseUrl
+  // 手机上这把钥匙归原生存（设置页填、原生同步也用它），壳把它递进来当回显
+  const token = tokenDraft ?? (settings.authToken || injectedToken())
   const searchLan = async () => {
     setScanning(true)
     setLan([])
@@ -41,14 +44,19 @@ export function ConnectionPanel({ settings, update }: { settings: AppSettings; u
     try {
       const base = normalizeBase(address)
       if (!/^https?:\/\//i.test(base)) throw new Error('请填写完整电脑地址，例如 http://192.168.0.2:8000')
-      if (isMobileHost()) await nativeRequest('connection', { baseUrl: base })
+      // 一次动作把地址和令牌都交给原生：手机上「连哪台电脑、用哪把钥匙」由原生设置页那份
+      // 持久化，网页只是另一个入口。
+      if (isMobileHost()) await nativeRequest('connection', { baseUrl: base, token })
       await update('apiBaseUrl', base)
+      await update('authToken', token)
       setDraft(null)
-      const result = await runDiagnostics(base, settings.authToken)
+      setTokenDraft(null)
+      const result = await runDiagnostics(base, token)
       setReport(result)
       if (result.steps.every((step) => step.state === 'pass')) {
         const sync = await runSync({ force: true })
-        setNote(sync.status === 'ok' ? '已连接并同步。返回 Feed 查看电脑生成的内容。' : `地址已保存；${sync.error?.message ?? '稍后自动同步'}`)
+        const where = isManageMode() ? '回手机首页看电脑生成的内容' : '返回 Feed 查看电脑生成的内容'
+        setNote(sync.status === 'ok' ? `已连接并同步。${where}。` : `地址已保存；${sync.error?.message ?? '稍后自动同步'}`)
       } else setNote('地址已保存，请查看下面的连接检查。')
     } catch (error) { setNote(error instanceof Error ? error.message : String(error)) }
     finally { setBusy(false) }
@@ -60,6 +68,12 @@ export function ConnectionPanel({ settings, update }: { settings: AppSettings; u
       <input className="paf-input" value={address} onChange={(event) => setDraft(event.target.value)}
         placeholder="http://192.168.0.2:8000" inputMode="url" autoComplete="off" spellCheck={false} />
     </label>
+    <label className="block space-y-1 text-sm">访问令牌
+      <input className="paf-input" value={token} onChange={(event) => setTokenDraft(event.target.value)}
+        placeholder="服务端 PAF_AUTH_TOKEN 的同一个值（没开鉴权就留空）" autoComplete="off" spellCheck={false}
+        type="password" />
+    </label>
+    {isMobileHost() && <p className="text-xs text-[var(--paf-muted)]">这把钥匙存在手机这边（设置页 → AI 内容），手机上那条流的同步用的也是它。</p>}
     {isMobileHost() && <div className="space-y-2">
       <button className="paf-btn" disabled={scanning || busy} onClick={() => void searchLan()}>
         {scanning ? '正在局域网里找…（约 5 秒）' : '搜索局域网里的电脑'}

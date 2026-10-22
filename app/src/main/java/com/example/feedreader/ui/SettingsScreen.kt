@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -49,6 +51,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.feedreader.data.CacheStats
+import com.example.feedreader.data.DateParser
 import com.example.feedreader.data.FeedSource
 import com.example.feedreader.data.SearchEngine
 import com.example.feedreader.data.SettingsStore
@@ -93,6 +96,14 @@ fun SettingsScreen(
     onClearVectorCache: suspend () -> String,
     onClearReadState: suspend () -> String,
     onClearWebCache: () -> Unit,
+    desktopBaseUrl: String,
+    desktopToken: String,
+    desktopSyncAt: Long,
+    desktopSyncError: String,
+    desktopPending: Int,
+    desktopArticleCount: Int,
+    onSaveDesktopConnection: (String, String) -> Unit,
+    onSyncDesktop: suspend () -> String,
     onBack: () -> Unit,
 ) {
     val snackbar = remember { SnackbarHostState() }
@@ -104,6 +115,8 @@ fun SettingsScreen(
     var darkDialog by remember { mutableStateOf(false) }
     var addSourceDialog by remember { mutableStateOf(false) }
     var deleteSource by remember { mutableStateOf<FeedSource?>(null) }
+    var desktopDialog by remember { mutableStateOf(false) }
+    var syncingDesktop by remember { mutableStateOf(false) }
 
     /**
      * OPML 文件选择。
@@ -271,6 +284,39 @@ fun SettingsScreen(
             item { SectionDivider() }
             item {
                 SectionHeader(
+                    title = "AI 内容（电脑端）",
+                    caption = desktopCaption(desktopBaseUrl, desktopSyncAt, desktopSyncError, desktopPending, desktopArticleCount),
+                )
+            }
+            item {
+                ActionRow(
+                    title = "电脑地址与令牌",
+                    subtitle = if (desktopBaseUrl.isBlank()) {
+                        "没填：电脑端生成的内容不会进手机这条流"
+                    } else {
+                        "$desktopBaseUrl · 令牌${if (desktopToken.isBlank()) "没填" else "已填（${desktopToken.length} 位）"}"
+                    },
+                ) { desktopDialog = true }
+            }
+            item {
+                ActionRow(
+                    title = if (syncingDesktop) "正在同步…" else "现在同步",
+                    subtitle = "先把手机上攒下的「读过了」交上去，再取电脑端的新内容",
+                ) {
+                    if (syncingDesktop) return@ActionRow
+                    scope.launch {
+                        syncingDesktop = true
+                        val message = runCatching { onSyncDesktop() }
+                            .getOrElse { "这一轮没同步上：${it.message ?: it.javaClass.simpleName}" }
+                        syncingDesktop = false
+                        snackbar.showSnackbar(message)
+                    }
+                }
+            }
+
+            item { SectionDivider() }
+            item {
+                SectionHeader(
                     title = "搜索",
                     caption = "本地先在已加载的文章里找；找不到时可用这个引擎搜网页",
                 )
@@ -419,6 +465,18 @@ fun SettingsScreen(
                 onSetWebDarkMode(it)
             },
             onDismiss = { darkDialog = false },
+        )
+    }
+
+    if (desktopDialog) {
+        DesktopConnectionDialog(
+            baseUrl = desktopBaseUrl,
+            token = desktopToken,
+            onSave = { base, secret ->
+                desktopDialog = false
+                onSaveDesktopConnection(base, secret)
+            },
+            onDismiss = { desktopDialog = false },
         )
     }
 
@@ -608,6 +666,90 @@ private fun AddSourceDialog(
         },
         dismissButton = {
             TextButton(enabled = !checking, onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+/**
+ * 「AI 内容」标题行那几个数。
+ *
+ * 四件事各回答一个用户真会问的问题：连没连（地址）、通没通（错误或上次同步时刻）、
+ * 欠不欠（待上传）、到没到（本机篇数）。只说「已同步」而不带条数，下次首页没变化时
+ * 还是只能靠猜。
+ */
+private fun desktopCaption(
+    baseUrl: String,
+    syncAt: Long,
+    error: String,
+    pending: Int,
+    articles: Int,
+): String = when {
+    baseUrl.isBlank() -> "还没连电脑：填好地址和令牌，手机上才会有电脑端生成的内容"
+    error.isNotBlank() -> "上次没同步上：$error"
+    else -> buildString {
+        append(if (syncAt > 0L) "上次同步 ${DateParser.relative(syncAt)}" else "还没同步过")
+        append(" · 本机 $articles 篇")
+        if (pending > 0) append(" · 待上传 $pending 条")
+    }
+}
+
+/**
+ * 电脑地址 + 令牌。
+ *
+ * 令牌放得下这个框而不是单独一行：它只在填错的时候才需要看，平时是「已填（12 位）」
+ * 这种不暴露内容的描述。这里也**不回显**旧令牌 —— 屏幕会被截图进 bug 报告，
+ * 而偏好文件里的值本来就能在设置页重新填。
+ */
+@Composable
+private fun DesktopConnectionDialog(
+    baseUrl: String,
+    token: String,
+    onSave: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var base by remember { mutableStateOf(baseUrl) }
+    var secret by remember { mutableStateOf(token) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("电脑端同步服务") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                HintText(
+                    "填那台跑着阅流服务端的电脑，例如 http://192.168.0.2:8000（要带 http://，" +
+                        "端口按服务端配置的填）。手机和它得在同一个网络里，服务端也得监听局域网。" +
+                        "令牌是服务端的 PAF_AUTH_TOKEN，两边填同一个值。",
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = base,
+                    onValueChange = { base = it },
+                    singleLine = true,
+                    label = { Text("电脑地址") },
+                    placeholder = { Text("http://192.168.0.2:8000") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = secret,
+                    onValueChange = { secret = it },
+                    singleLine = true,
+                    label = { Text("访问令牌") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (base.trim().trimEnd('/') != baseUrl) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HintText("换了地址就当成另一台电脑：旧令牌和旧游标会一起清掉，下次整份重取。")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(base, secret) }) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
 }

@@ -17,12 +17,21 @@ class FeedSourcesTest {
         assertEquals("存在重复的 source id", ids.size, ids.distinct().size)
     }
 
+    /**
+     * 可抓取的源地址不重复且都是 https。
+     *
+     * `virtual` 那几条（电脑端 AI 帖子）压根不发 HTTP 请求，地址栏是空的：它们留在
+     * DEFAULT 里只是为了继承订阅开关、分类 chips、缓存与已读那一套，不该被这条门判成「漏了 https」。
+     */
     @Test
     fun `源地址不重复且都是 https`() {
-        val urls = FeedSources.DEFAULT.map { it.url }
+        val urls = FeedSources.DEFAULT.filterNot { it.virtual }.map { it.url }
         assertEquals("存在重复的源地址", urls.size, urls.distinct().size)
         urls.forEach { url ->
             assertTrue("不是 https：$url", url.startsWith("https://"))
+        }
+        FeedSources.DEFAULT.filter { it.virtual }.forEach { source ->
+            assertTrue("虚拟源不该带抓取地址：${source.id}", source.url.isBlank())
         }
     }
 

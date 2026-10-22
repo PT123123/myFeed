@@ -25,9 +25,12 @@ class FeedRepository(
 
     /**
      * 并发拉取全部源。单个源失败不影响其它源，失败信息随结果一起返回。
+     *
+     * [FeedSource.virtual] 的源在这里就被滤掉：它没有地址，交给 RSS 抓取只会得到一条
+     * 「必失败的源」挂在首页失败横幅上，而它的内容另有来路（[DesktopSyncClient]）。
      */
     suspend fun fetchAll(sources: List<FeedSource>): FetchOutcome = coroutineScope {
-        val tasks = sources.map { source ->
+        val tasks = sources.filterNot { it.virtual }.map { source ->
             async(Dispatchers.IO) { source to runCatching { fetchOne(source) } }
         }
 

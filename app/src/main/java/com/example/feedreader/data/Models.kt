@@ -52,6 +52,13 @@ data class FeedSource(
      * 而且删源的时候很容易漏掉黑名单里那一行。
      */
     val defaultEnabled: Boolean = true,
+    /**
+     * 内容不来自 RSS 抓取，而是本机另一个来源（电脑端 AI 帖子）。
+     *
+     * 它仍然是一条「源」：能在设置里关、能进分类筛选、能占缓存文件 —— 唯一区别是
+     * [FeedRepository.fetchAll] 跳过它，因为它的 url 是空的，抓它会是一次必失败的请求。
+     */
+    val virtual: Boolean = false,
 )
 
 /**
@@ -255,6 +262,11 @@ object FeedSources {
         FeedSource("zhihuhot", "知乎热榜", "https://rsshub.liumingye.cn/zhihu/hot", "热点", defaultEnabled = false),
         FeedSource("zhihudaily", "知乎日报", "https://rsshub.woodland.cafe/zhihu/daily", "热点", defaultEnabled = false),
         FeedSource("bilihot", "B站热搜", "https://rsshub.liumingye.cn/bilibili/hot-search", "热点", defaultEnabled = false),
+
+        // —— 电脑端 AI 帖子：一条不抓 RSS 的虚拟源（见 [FeedSource.virtual]）——
+        // 摆在 DEFAULT 里而不是另开一个「AI 区」，是为了让它继承订阅体系已有的一切：
+        // 设置里能关、分类 chips 里有它、缓存和保留策略管得到它、已读按同一个 id 记。
+        FeedSource(DESKTOP_ID, DesktopFeed.DESKTOP_SOURCE_NAME, "", DESKTOP_CATEGORY, virtual = true),
     )
 
     /** 出厂默认**不**拉取的源 id。首次运行、以及默认值版本升级时的迁移都用它。 */
@@ -262,6 +274,18 @@ object FeedSources {
         DEFAULT.filterNot { it.defaultEnabled }.map { it.id }.toSet()
 
     const val ALL = "全部"
+
+    /**
+     * 电脑端帖子占用的源 id。文章 id 是 `"paf:<帖子 id>"` —— 沿用旧版那个写法，
+     * 已经存在的已读记录、以及 WebView 那边 legacy 导入认的键都还能对上。
+     */
+    const val DESKTOP_ID = "paf"
+
+    /** 电脑端帖子在分类 chips 里那一行的名字。 */
+    const val DESKTOP_CATEGORY = "AI 内容"
+
+    /** 帖子 id → 原生文章 id。已读、向量缓存、列表 key 全都走这一个函数。 */
+    fun desktopArticleId(postId: String): String = "$DESKTOP_ID:$postId"
 
     /**
      * 分类筛选用的选项，按给定**文章列表**里的出现顺序去重。

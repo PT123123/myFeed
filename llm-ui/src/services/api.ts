@@ -1,5 +1,6 @@
 import { db } from '../db'
 import { DEFAULT_SETTINGS } from '../db/types'
+import { injectedToken } from '../mobile/transport'
 import type { PostRow, PostKind } from '../db/types'
 import type { ContentType, EvidenceGrade, Priority, SuggestedAction } from '../lib/curation'
 import { fingerprintOf } from '../db/demoFactory'
@@ -57,7 +58,11 @@ async function baseUrl(): Promise<string> {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const base = await baseUrl()
   const tokenRow = await db.settings.get('authToken')
-  const token = typeof tokenRow?.value === 'string' ? tokenRow.value : ''
+  // 手机上的令牌归原生那一侧存（设置页填、同步用它）。这里优先用本会话刚填进库里的值，
+  // 没有就用壳递进来的那份 —— 两边读同一把钥匙，否则「网页同步通了、原生的还是 401」
+  // 这种症状会长期查不清。
+  const stored = typeof tokenRow?.value === 'string' ? tokenRow.value : ''
+  const token = stored || injectedToken()
   let resp: Response
   try {
     resp = await fetch(`${base}/api/v1${path}`, {

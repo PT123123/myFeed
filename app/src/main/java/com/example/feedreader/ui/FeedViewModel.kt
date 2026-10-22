@@ -7,6 +7,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.feedreader.data.Article
 import com.example.feedreader.data.CacheStats
+import com.example.feedreader.data.DesktopOutbox
+import com.example.feedreader.data.DesktopSync
+import com.example.feedreader.data.DesktopSyncReport
 import com.example.feedreader.data.FeedCache
 import com.example.feedreader.data.FeedRepository
 import com.example.feedreader.data.FeedSource
@@ -124,6 +127,17 @@ class FeedViewModel @JvmOverloads constructor(
     private val keyedHttp = OkHttpKeyed(client)
 
     /**
+     * 攒着要交给电脑端的「读过了」。
+     *
+     * 手机上点开一篇 AI 帖子也要让那台电脑知道 —— 否则用户在阅读器里读完的内容，
+     * 电脑端的策展回路永远看不见，兴趣就越跑越偏。
+     */
+    private val desktopOutbox = DesktopOutbox.forApp(app)
+
+    /** 每轮现建：地址和令牌可能在设置页刚被改掉，缓存一份会连到上一台电脑。 */
+    private fun desktopSync() = DesktopSync(settings, cache, desktopOutbox, client)
+
+    /**
      * 推荐链路的总装。
      *
      * 做成 `var` 是因为通道列表依赖两个可变的设置（自建 RSSHub 地址、哪些通道被关掉），
@@ -213,6 +227,27 @@ class FeedViewModel @JvmOverloads constructor(
     private val _relayLastSyncAt = MutableStateFlow(settings.relayLastAutoSyncAt)
     val relayLastSyncAt: StateFlow<Long> = _relayLastSyncAt.asStateFlow()
 
+    /**
+     * 电脑端同步服务的地址。原生设置页读写它 —— 内容已经进了原生这条流，
+     * 「连哪台电脑」这件事就该由原生这边管，不该藏在 WebView 里。
+     */
+    private val _desktopBaseUrl = MutableStateFlow(settings.desktopFeedBaseUrl)
+    val desktopBaseUrl: StateFlow<String> = _desktopBaseUrl.asStateFlow()
+
+    private val _desktopToken = MutableStateFlow(settings.desktopFeedToken)
+    val desktopToken: StateFlow<String> = _desktopToken.asStateFlow()
+
+    private val _desktopSyncAt = MutableStateFlow(settings.desktopFeedSyncAt)
+    val desktopSyncAt: StateFlow<Long> = _desktopSyncAt.asStateFlow()
+
+    /** 上一次同步失败的原因（`CODE: 文案`）。空串 = 现在是干净的。 */
+    private val _desktopSyncError = MutableStateFlow(settings.desktopFeedSyncError)
+    val desktopSyncError: StateFlow<String> = _desktopSyncError.asStateFlow()
+
+    /** 攒了几条「读过了」还没交上去。 */
+    private val _desktopPending = MutableStateFlow(0)
+    val desktopPending: StateFlow<Int> = _desktopPending.asStateFlow()
+
     private val _cacheStats = MutableStateFlow(CacheStats())
     val cacheStats: StateFlow<CacheStats> = _cacheStats.asStateFlow()
 
@@ -259,6 +294,8 @@ class FeedViewModel @JvmOverloads constructor(
                 cache.stats()
             }
             _cacheStats.value = stats
+            // 攒着的「读过了」先报个数：设置页得在第一次打开就知道有没有欠着电脑端的账
+            _desktopPending.value = withContext(Dispatchers.IO) { desktopOutbox.pendingCount() }
             load()
         }
     }
@@ -273,7 +310,15 @@ class FeedViewModel @JvmOverloads constructor(
         if (article.id.isBlank() || _readAt.value.containsKey(article.id)) return
         val now = System.currentTimeMillis()
         _readAt.value = _readAt.value + (article.id to now)
-        viewModelScope.launch(Dispatchers.IO) { readState.save(_readAt.value, now) }
+        // 电脑端生成的帖子在服务器那边也该有一条「读过」：只记本地的话，那台机器
+        // 永远不知道手机上看了什么，下一轮策展照旧按老情报出题。
+        // 只排队不发请求 —— 电脑端关机时点阅读不该有一次网络等待挂在手指上。
+        viewModelScope.launch(Dispatchers.IO) {
+            readState.save(_readAt.value, now)
+            if (desktopSync().enqueueRead(article, now)) {
+                _desktopPending.value = desktopOutbox.pendingCount()
+            }
+        }
     }
 
     /**
@@ -296,6 +341,60 @@ class FeedViewModel @JvmOverloads constructor(
     }
 
     fun refresh() = load()
+
+    // --------------------------------------------------------------- 电脑端同步
+
+    /**
+     * 保存「连哪台电脑、用哪把钥匙」。
+     *
+     * 地址交给 [SettingsStore] 而不是这里：它在值变化时会顺手把令牌、游标、错误一起清掉 ——
+     * 换机器就是换一套凭据，旧那把不该留在口袋里。这里只负责把结果抄回界面读的那几条流。
+     */
+    fun setDesktopConnection(baseUrl: String, token: String) {
+        settings.desktopFeedBaseUrl = baseUrl
+        settings.desktopFeedToken = token
+        _desktopBaseUrl.value = settings.desktopFeedBaseUrl
+        _desktopToken.value = settings.desktopFeedToken
+        _desktopSyncAt.value = settings.desktopFeedSyncAt
+        _desktopSyncError.value = settings.desktopFeedSyncError
+    }
+
+    /**
+     * 设置页上那一下「现在同步」。
+     *
+     * `force = true`：用户点这个按钮就是因为他觉得没同步上，退避期该被这一下打断。
+     * 结果一律回一句人话，界面不需要自己判断成功没成功。
+     */
+    suspend fun syncDesktopNow(): String {
+        val report = withContext(Dispatchers.IO) { desktopSync().run(force = true) }
+        publish(report)
+        return when {
+            !desktopSync().configured -> "还没填电脑地址：填好那台机器的地址才能同步"
+            report.error.isNotBlank() -> "这一轮没同步上：${report.error}"
+            report.incoming == 0 && report.pushed == 0 -> "电脑端没有新内容，本机也没有要交的操作"
+            else -> "拿到 ${report.incoming} 条，交上去 ${report.pushed} 条" +
+                if (report.failed > 0) "；有 ${report.failed} 条被电脑端打回" else ""
+        }
+    }
+
+    /** 把一轮同步的结果抄进设置页读的那几条流，顺手合并服务端记的已读。 */
+    private fun publish(report: DesktopSyncReport) {
+        _desktopSyncAt.value = settings.desktopFeedSyncAt
+        _desktopSyncError.value = settings.desktopFeedSyncError
+        _desktopPending.value = desktopOutbox.pendingCount()
+        if (report.readMarks.isEmpty()) return
+        // 电脑端说读过 = 手机上也该压暗：同一篇内容在两边各读各的、状态不互通，
+        // 「只看未读」就会把已经看过的推成新的。取较晚的那个时刻，谁也不会把已读倒退回未读。
+        _readAt.update { current ->
+            val next = HashMap(current)
+            report.readMarks.forEach { (id, at) ->
+                val known = next[id]
+                if (known == null || at > known) next[id] = at
+            }
+            next
+        }
+        viewModelScope.launch(Dispatchers.IO) { readState.save(_readAt.value) }
+    }
 
     fun setSourceEnabled(id: String, enabled: Boolean) {
         sourceStore.setEnabled(id, enabled)
@@ -1000,7 +1099,8 @@ class FeedViewModel @JvmOverloads constructor(
 
         // 一条内容来源都没有：既没兴趣词、也没启用的订阅源。这不是错误，给引导面板。
         // 注意这里**不再**拿「启用的源为空」当异常 —— 只要有兴趣词，六路召回照样能填满首页。
-        if (sources.isEmpty() && _recommend.value.activeCount == 0) {
+        // 连电脑地址都没填时才算真的一条路都没有：AI 帖子那条流照样能撑起首页。
+        if (sources.isEmpty() && _recommend.value.activeCount == 0 && !desktopSync().configured) {
             if (settings.relayBaseUrl.isNotBlank()) {
                 // 但确认过 relay 地址时先别急着下结论：源清单本身可能就是那次同步该带回来的
                 // （换机、清数据、或者装好之后一直没点过刷新）。悄悄拉一次，拉到了重跑一遍，
@@ -1048,9 +1148,15 @@ class FeedViewModel @JvmOverloads constructor(
 
             val encoder = ensureEncoder()
 
+            // 电脑端那台机器的帖子和订阅内容并进同一批候选，再过同一套排序 ——
+            // 「有机结合」就落在这一步：一条流、一套已读、一组分类 chips。
+            // 同步失败时这里拿回来的是磁盘上那份，所以电脑端关机时首页照样有 AI 内容。
+            val desktop = withContext(Dispatchers.IO) { desktopSync().run() }
+            publish(desktop)
+
             val outcome = recommendEngine.recommend(
                 interests = snapshot.interests,
-                subscribed = fetched.articles,
+                subscribed = fetched.articles + desktop.articles,
                 encoder = encoder,
                 pool = semanticEngine.pool(),
             )

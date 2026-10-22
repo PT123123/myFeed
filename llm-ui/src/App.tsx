@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { HashRouter, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from './components/AppShell'
@@ -15,7 +16,12 @@ import { SavedPage } from './pages/SavedPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SourcesPage } from './pages/SourcesPage'
 import { UsagePage } from './pages/UsagePage'
+import { isManageMode } from './mobile/transport'
 import { runSync, SYNC_INTERVAL_MS } from './services/sync'
+
+/** 手机壳里阅读器是原生那条流，这里只留生产侧；网页直开仍是完整应用。 */
+const MANAGE_ONLY = isManageMode()
+const readOr = (page: ReactNode, manage: ReactNode) => (MANAGE_ONLY ? manage : page)
 
 export default function App() {
   const { settings, update } = useSettings()
@@ -68,17 +74,17 @@ export default function App() {
     <HashRouter>
       <AppShell theme={theme} onThemeChange={onThemeChange}>
         <Routes>
-          <Route path="/" element={<FeedPage />} />
-          <Route path="/post/:id" element={<PostDetailPage />} />
-          <Route path="/discover" element={<DiscoverPage />} />
-          <Route path="/saved" element={<SavedPage />} />
+          <Route path="/" element={readOr(<FeedPage />, <GenerationPage />)} />
+          <Route path="/post/:id" element={readOr(<PostDetailPage />, <GenerationPage />)} />
+          <Route path="/discover" element={readOr(<DiscoverPage />, <GenerationPage />)} />
+          <Route path="/saved" element={readOr(<SavedPage />, <GenerationPage />)} />
           <Route path="/generation" element={<GenerationPage />} />
           <Route path="/personas" element={<PersonasPage />} />
           <Route path="/prompts" element={<PromptsPage />} />
           <Route path="/sources" element={<SourcesPage />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<FeedPage />} />
+          <Route path="*" element={readOr(<FeedPage />, <GenerationPage />)} />
         </Routes>
       </AppShell>
     </HashRouter>

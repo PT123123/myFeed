@@ -56,7 +56,85 @@ class SettingsStore(context: Context) {
     /** 阅流电脑端服务基地址。 */
     var desktopFeedBaseUrl: String
         get() = prefs.getString(KEY_DESKTOP_FEED_BASE, "").orEmpty()
-        set(value) { prefs.edit().putString(KEY_DESKTOP_FEED_BASE, value.trim().trimEnd('/')).apply() }
+        set(value) {
+            val next = value.trim().trimEnd('/')
+            val changed = next != desktopFeedBaseUrl
+            prefs.edit().putString(KEY_DESKTOP_FEED_BASE, next).apply()
+            if (changed) {
+                // 地址换了就是另一台电脑：旧钥匙和旧游标都不该跟着搬过去。
+                // 游标留着最多让服务端回一次 CURSOR_EXPIRED，而令牌带错机器是把凭据递给外人。
+                clearDesktopFeedState()
+            }
+        }
+
+    /**
+     * 电脑端服务的访问令牌。由 WebView 那边把它 IndexedDB 里的值递过来一次
+     * （`llmTransport` 的 `credentials` 动作），也可以在设置页手填。
+     *
+     * 只写偏好文件，**不进日志**：日志会被 bug 报告带走，而仓库是公开的。
+     */
+    var desktopFeedToken: String
+        get() = prefs.getString(KEY_DESKTOP_FEED_TOKEN, "").orEmpty()
+        set(value) { prefs.edit().putString(KEY_DESKTOP_FEED_TOKEN, value.trim()).apply() }
+
+    /** 变更日志游标；-1 = 从没同步过，下一轮先取全量快照。 */
+    var desktopFeedSyncSeq: Long
+        get() = prefs.getLong(KEY_DESKTOP_FEED_SEQ, -1L)
+        set(value) { prefs.edit().putLong(KEY_DESKTOP_FEED_SEQ, value).apply() }
+
+    /** 上一次同步成功的时刻（毫秒），0 = 没有过。失败时刻不记在这里（见 [desktopFeedSyncError]）。 */
+    var desktopFeedSyncAt: Long
+        get() = prefs.getLong(KEY_DESKTOP_FEED_SYNC_AT, 0L)
+        set(value) { prefs.edit().putLong(KEY_DESKTOP_FEED_SYNC_AT, value).apply() }
+
+    /** 上一次同步失败的原因（`CODE: 文案`）。空串 = 当前没有错误。 */
+    var desktopFeedSyncError: String
+        get() = prefs.getString(KEY_DESKTOP_FEED_SYNC_ERROR, "").orEmpty()
+        set(value) { prefs.edit().putString(KEY_DESKTOP_FEED_SYNC_ERROR, value.trim()).apply() }
+
+    /** 连续失败次数，退避时长按它翻倍；任何一轮成功就归零。 */
+    var desktopFeedSyncFailures: Int
+        get() = prefs.getInt(KEY_DESKTOP_FEED_FAILURES, 0)
+        set(value) { prefs.edit().putInt(KEY_DESKTOP_FEED_FAILURES, value).apply() }
+
+    /** 退避到什么时候（毫秒）。电脑端关机时不该每次刷新都白等一次网络超时。 */
+    var desktopFeedBackoffUntil: Long
+        get() = prefs.getLong(KEY_DESKTOP_FEED_BACKOFF_UNTIL, 0L)
+        set(value) { prefs.edit().putLong(KEY_DESKTOP_FEED_BACKOFF_UNTIL, value).apply() }
+
+    /**
+     * 这台设备在同步协议里的身份。**稳定**：装一次生一次，跨进程重启、跨电脑换地址都不变，
+     * 因为服务端的幂等判定按 `(device_id, client_seq)` 认，换 id 等于把同一批操作重新算一遍。
+     */
+    var desktopDeviceId: String
+        get() = prefs.getString(KEY_DESKTOP_DEVICE_ID, "").orEmpty().ifBlank {
+            java.util.UUID.randomUUID().toString().also {
+                prefs.edit().putString(KEY_DESKTOP_DEVICE_ID, it).apply()
+            }
+        }
+        set(value) { prefs.edit().putString(KEY_DESKTOP_DEVICE_ID, value.trim()).apply() }
+
+    /** 本机已发出的操作序号（同一 device 内单调递增，服务端按它排序与幂等去重）。 */
+    var desktopClientSeq: Long
+        get() = prefs.getLong(KEY_DESKTOP_CLIENT_SEQ, 0L)
+        set(value) { prefs.edit().putLong(KEY_DESKTOP_CLIENT_SEQ, value).apply() }
+
+    /**
+     * 清掉「这台电脑」的同步状态：令牌、游标、时刻、错误、退避。
+     *
+     * 不含 [desktopDeviceId] 与 [desktopClientSeq] —— 那是本机身份，换电脑不换人；
+     * 序号重置会让服务端把同一批操作当新操作重算。
+     */
+    fun clearDesktopFeedState() {
+        prefs.edit()
+            .remove(KEY_DESKTOP_FEED_TOKEN)
+            .remove(KEY_DESKTOP_FEED_SEQ)
+            .remove(KEY_DESKTOP_FEED_SYNC_AT)
+            .remove(KEY_DESKTOP_FEED_SYNC_ERROR)
+            .remove(KEY_DESKTOP_FEED_FAILURES)
+            .remove(KEY_DESKTOP_FEED_BACKOFF_UNTIL)
+            .apply()
+    }
 
     /**
      * 命令口配对 token（扫码时从 `myfeed://relay-sync?base=…&tok=…` 带进来）。
@@ -120,6 +198,14 @@ class SettingsStore(context: Context) {
         private const val KEY_MAX_MB = "cache_max_mb"
         private const val KEY_SEARCH_ENGINE = "search_engine"
         private const val KEY_DESKTOP_FEED_BASE = "desktop_feed_base_url"
+        private const val KEY_DESKTOP_FEED_TOKEN = "desktop_feed_token"
+        private const val KEY_DESKTOP_FEED_SEQ = "desktop_feed_sync_seq"
+        private const val KEY_DESKTOP_FEED_SYNC_AT = "desktop_feed_sync_at"
+        private const val KEY_DESKTOP_FEED_SYNC_ERROR = "desktop_feed_sync_error"
+        private const val KEY_DESKTOP_FEED_FAILURES = "desktop_feed_failures"
+        private const val KEY_DESKTOP_FEED_BACKOFF_UNTIL = "desktop_feed_backoff_until"
+        private const val KEY_DESKTOP_DEVICE_ID = "desktop_device_id"
+        private const val KEY_DESKTOP_CLIENT_SEQ = "desktop_client_seq"
         internal const val KEY_RELAY_BASE = "relay_base_url"
         private const val KEY_RELAY_TOKEN = "relay_command_token"
         private const val KEY_RELAY_AUTO = "relay_auto_sync"

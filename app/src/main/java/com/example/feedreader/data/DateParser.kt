@@ -38,10 +38,21 @@ object DateParser {
     /** 匹配 ISO8601 的 `+08:00` / `-05:00` 尾缀，转成 SimpleDateFormat 认的 `+0800`。 */
     private val ISO_OFFSET = Regex("([+-]\\d{2}):(\\d{2})$")
 
+    /**
+     * 小数秒截到 3 位。
+     *
+     * `SSS` 在 java.text 里是「一个数字」不是「三位小数」，lenient 模式下 Python 的 6 位微秒
+     * `.986983` 会被读成 986983 毫秒并累加进时间 —— 实测电脑端快照 345 条里 216 条带 6 位小数，
+     * 偏差从几秒到几十分钟不等，而且是把内容排到错误的时间上。
+     */
+    private val FRACTION = Regex("\\.(\\d+)")
+
     /** 解析失败返回 0。 */
     fun parse(raw: String?): Long {
         if (raw.isNullOrBlank()) return 0L
-        val text = raw.trim().replace(ISO_OFFSET, "$1$2")
+        val text = FRACTION.replace(raw.trim().replace(ISO_OFFSET, "$1$2")) { match ->
+            "." + match.groupValues[1].take(3).padEnd(3, '0')
+        }
         // 先要求整串都被消费掉。否则像 "…18:38:59 GMT" 这种，用不含时区的格式
         // 也能"部分匹配"成功，时区就被悄悄丢了，时间会整体偏掉。
         return attempt(text, requireFull = true)

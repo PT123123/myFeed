@@ -14,9 +14,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -103,6 +106,8 @@ fun ScanScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    // 取景是全屏幕的，「关闭」贴在底边就会躲到系统手势条下面；这层避让只留给按钮。
+                    .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {

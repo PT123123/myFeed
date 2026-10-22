@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -121,6 +124,7 @@ internal fun SubscriptionReaderApp(
     viewModel: FeedViewModel = viewModel(),
     deepLink: DeepLink? = null,
     onDeepLinkHandled: () -> Unit = {},
+    onOpenStudio: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     val sources by viewModel.enabledSources.collectAsState()
@@ -140,6 +144,11 @@ internal fun SubscriptionReaderApp(
     val modelBytes by viewModel.modelBytes.collectAsState()
     val recommend by viewModel.recommend.collectAsState()
     val readAt by viewModel.readAt.collectAsState()
+    val desktopBaseUrl by viewModel.desktopBaseUrl.collectAsState()
+    val desktopToken by viewModel.desktopToken.collectAsState()
+    val desktopSyncAt by viewModel.desktopSyncAt.collectAsState()
+    val desktopSyncError by viewModel.desktopSyncError.collectAsState()
+    val desktopPending by viewModel.desktopPending.collectAsState()
     val context = LocalContext.current
 
     var query by rememberSaveable { mutableStateOf("") }
@@ -210,6 +219,10 @@ internal fun SubscriptionReaderApp(
             (!hideRead || article.id !in readBeforeSession) &&
                 (!onlyRelevant || recommend.activeCount == 0 || state.showingCache ||
                     keyword.isNotEmpty() || filteredSource != null || activeCategory != FeedSources.ALL ||
+                    // 电脑端策展出来的帖子不算「按兴趣召回」的产物：它没有 matchedInterests，
+                    // 兴趣门槛会把它整条藏掉（1.5.2 就是栽在这上面）。内容已经付过一次同步的
+                    // 代价，看不看得见该由用户筛，而不是由本机那套兴趣向量判。
+                    article.remotePostId != null ||
                     scored.matchedInterests.isNotEmpty()) &&
                 ArticleSearch.matches(article, keyword)
         }
@@ -370,6 +383,14 @@ internal fun SubscriptionReaderApp(
                 onClearVectorCache = { viewModel.clearVectorCache() },
                 onClearReadState = { viewModel.clearReadState() },
                 onClearWebCache = { clearWebViewCache(context) },
+                desktopBaseUrl = desktopBaseUrl,
+                desktopToken = desktopToken,
+                desktopSyncAt = desktopSyncAt,
+                desktopSyncError = desktopSyncError,
+                desktopPending = desktopPending,
+                desktopArticleCount = state.articles.count { it.remotePostId != null },
+                onSaveDesktopConnection = viewModel::setDesktopConnection,
+                onSyncDesktop = viewModel::syncDesktopNow,
                 onBack = { page = PAGE_NONE },
             )
         }
@@ -386,7 +407,13 @@ internal fun SubscriptionReaderApp(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
-                Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 16.dp)) {
+                // 抽屉是画到状态栏底下的，28.dp 这个手写的顶距在 3x 平板上（状态栏 122px≈61dp）
+                // 会把标题和头几行盖进状态栏 —— 用 inset 而不是猜一个数。
+                Column(
+                    modifier = Modifier
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 16.dp),
+                ) {
                     Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -444,6 +471,16 @@ internal fun SubscriptionReaderApp(
                         relayFocus = null
                         page = PAGE_RELAY
                         closeDrawer()
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
+                NavigationDrawerItem(
+                    label = { Text("AI 内容生产") },
+                    selected = false,
+                    onClick = {
+                        // 抽屉关掉再切页：不关的话返回时用户会看见抽屉半开着盖在阅读器上
+                        closeDrawer()
+                        onOpenStudio()
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )

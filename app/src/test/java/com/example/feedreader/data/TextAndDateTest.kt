@@ -121,6 +121,28 @@ class DateParserTest {
         assertEquals(1790244900000L, DateParser.parse("2026-09-24T10:15:00.000Z"))
     }
 
+    /**
+     * 小数秒按小数处理，不按毫秒数累加。
+     *
+     * `SSS` 是数字字段：lenient 模式下 Python 那套 6 位微秒 `.986983` 会被读成 986983 毫秒
+     * 并加进时间，条目凭空往后排 16 分钟。电脑端 `apps/server` 回包全是 6 位小数
+     * （实测快照 345 条里 216 条），所以这条不是理论边界。
+     */
+    @Test
+    fun `ISO8601 的微秒截断到毫秒`() {
+        assertEquals(1790244900000L + 123L, DateParser.parse("2026-09-24T10:15:00.123456Z"))
+        assertEquals(1790244900000L + 120L, DateParser.parse("2026-09-24T10:15:00.12Z"))
+        assertEquals(1790244900000L + 100L, DateParser.parse("2026-09-24T10:15:00.1Z"))
+        assertEquals(
+            DateParser.parse("2026-09-24T10:15:00.123Z"),
+            DateParser.parse("2026-09-24T10:15:00.123456Z"),
+        )
+        assertEquals(
+            DateParser.parse("2026-09-24T10:15:00.123Z"),
+            DateParser.parse("2026-09-24T10:15:00.123456+00:00"),
+        )
+    }
+
     @Test
     fun `ISO8601 带冒号形式的时区偏移`() {
         // SimpleDateFormat 的 Z 只认 +0800，所以 +08:00 需要先归一化

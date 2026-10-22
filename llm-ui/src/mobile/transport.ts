@@ -1,5 +1,11 @@
 /** Origin-restricted Android message transport. No API keys are bundled in the UI. */
-export interface MobileHost { baseUrl: string }
+export interface MobileHost {
+  baseUrl: string
+  /** Bearer token held by the native side (the single source of truth on a phone). */
+  token?: string
+  /** True = the app reads content natively, so this WebView only runs the production side. */
+  manage?: boolean
+}
 interface Reply { id: string; error?: string; status?: number; body?: string; value?: unknown }
 declare global {
   interface Window {
@@ -11,6 +17,9 @@ const pending = new Map<string, { resolve: (value: Reply) => void; reject: (erro
 let serial = 0
 export const isMobileHost = () => typeof window !== 'undefined' && !!window.__YUELIU_HOST__
 export const initialBaseUrl = () => typeof window === 'undefined' ? '' : window.__YUELIU_HOST__?.baseUrl ?? ''
+export const injectedToken = () => typeof window === 'undefined' ? '' : window.__YUELIU_HOST__?.token ?? ''
+/** 「只管生产」形态：阅读那一半在原生那条流里，这里不再并列一套 Feed/收藏/发现。 */
+export const isManageMode = () => typeof window !== 'undefined' && !!window.__YUELIU_HOST__?.manage
 
 export function nativeRequest(action: string, payload: Record<string, unknown> = {}): Promise<Reply> {
   const transport = window.llmTransport
